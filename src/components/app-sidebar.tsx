@@ -27,7 +27,6 @@ import {
   Settings as SettingsIcon,
   ListTodo,
   ChevronDown,
-  ChevronRight,
   LogOut,
   UserPlus,
   Plus,
