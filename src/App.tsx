@@ -2,6 +2,9 @@ import { Outlet, RouterProvider, createBrowserRouter } from "react-router-dom";
 import Home from "./pages/Home";
 import Header from "./pages/Header";
 import Footer from "./pages/Footer";
+import Blog from "./pages/Blog";
+import AboutUs from "./pages/AboutUs";
+import Contact from "./pages/Contact";
 import "./App.css";
 
 // admin
@@ -12,8 +15,6 @@ import Users from "./pages/admin/Users";
 import CreateUserPage from "./pages/admin/addUsers";
 import Timer from "./pages/admin/Timer";
 import Settings from "./pages/admin/Settings";
-
-// NEW
 import AllProjects from "./pages/admin/AllProjects";
 import AddProjects from "./pages/admin/AddProjects";
 import MyTimer from "./pages/admin/MyTimer";
@@ -23,9 +24,9 @@ import Tasks from "./pages/admin/Tasks";
 import AddTasks from "./pages/admin/AddTasks";    
 
 const Layout = () => (
-  <div className="app">
+  <div className="min-h-screen flex flex-col">
     <Header />
-    <main className="main-content">
+    <main className="flex-1 pt-10">
       <Outlet />
     </main>
     <Footer />
@@ -36,7 +37,12 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <Layout />,
-    children: [{ index: true, element: <Home /> }],
+    children: [{ index: true, element: <Home /> },
+      { path: "about", element: <AboutUs /> },
+      { path: "blog", element: <Blog /> },
+      { path: "contact", element: <Contact /> },
+
+    ],
   },
   { path: "/admin/login", element: <Login /> },
   {

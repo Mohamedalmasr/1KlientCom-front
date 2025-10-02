@@ -118,3 +118,52 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* خلي المتصفح يفهم إحنا في Light/Dark عشان عناصر النظام تتلوّن صح */
+@layer base {
+  :root { color-scheme: light; }
+  .dark { color-scheme: dark; }
+
+  /* Placeholder يكون واضح */
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-muted-foreground/70;
+  }
+
+  /* Selection لون مطابق للثيم */
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 25%, transparent);
+    color: var(--primary-foreground);
+  }
+  
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  *::-webkit-scrollbar { height: 8px; width: 8px; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track { background: transparent; }
+}
+
+[data-radix-popper-content-wrapper] > * {
+  @apply bg-popover text-popover-foreground border border-border;
+}
+
+[role="menu"],
+[role="listbox"] {
+  @apply bg-popover text-popover-foreground border border-border;
+}
+
+[data-state="open"][data-side],
+[data-radix-portal] .radix-themes,
+div[role="dialog"] {
+  @apply bg-card text-card-foreground;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  @apply ring-2 ring-ring ring-offset-2 ring-offset-background outline-none;
+}
+
