@@ -155,3 +155,64 @@ export async function sendContact(payload: ContactPayload): Promise<ContactRespo
 }
 
 /* ================================ Exports End ================================ */
+/* ================================== Blogs API ================================= */
+
+/** شكل الصفّ اللي بيجي من الباك (tC_Blog) */
+export type BlogRow = {
+  blogAID: number;
+  blogSubj: string;
+  blogBody: string;
+  creaDt: string;   // ISO string
+  creaBy: string;
+  recSts: '0' | '1';
+};
+
+export type CreateBlogPayload = {
+  blogSubj: string;
+  blogBody: string;
+  creaBy?: string;      // هنرسل "admin" افتراضيًا
+  recSts?: '0' | '1';   // افتراضي "1"
+};
+
+export type UpdateBlogPayload = Partial<{
+  blogSubj: string;
+  blogBody: string;
+  recSts: '0' | '1';
+}>;
+
+/** GET /blog */
+export async function getBlogs(): Promise<BlogRow[]> {
+  return request<BlogRow[]>('/blog', { method: 'GET' });
+}
+
+/** GET /blog/:id */
+export async function getBlog(id: number): Promise<BlogRow> {
+  return request<BlogRow>(`/blog/${id}`, { method: 'GET' });
+}
+
+/** POST /blog */
+export async function createBlog(payload: CreateBlogPayload): Promise<BlogRow> {
+  const body = {
+    blogSubj: payload.blogSubj,
+    blogBody: payload.blogBody,
+    creaBy: payload.creaBy ?? 'admin',
+    recSts: payload.recSts ?? '1',
+  };
+  return request<BlogRow>('/blog', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** PATCH /blog/:id */
+export async function updateBlog(id: number, payload: UpdateBlogPayload): Promise<BlogRow> {
+  return request<BlogRow>(`/blog/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** DELETE /blog/:id */
+export async function deleteBlog(id: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/blog/${id}`, { method: 'DELETE' });
+}

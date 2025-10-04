@@ -20,8 +20,13 @@ import AddProjects from "./pages/admin/AddProjects";
 import MyTimer from "./pages/admin/MyTimer";
 import TimerReport from "./pages/admin/TimerReport";
 import AllSettings from "./pages/admin/AllSettings";
-import Tasks from "./pages/admin/Tasks";         
-import AddTasks from "./pages/admin/AddTasks";    
+import Tasks from "./pages/admin/Tasks";
+import AddTasks from "./pages/admin/AddTasks";
+
+// ====== Blogs pages (حقيقية) ======
+import AdminBlogsList from "./pages/admin/AllBlogs";
+import AdminAddBlog from "./pages/admin/AddBlog";
+import AdminEditBlog from "./pages/admin/EditBlog";
 
 const Layout = () => (
   <div className="min-h-screen flex flex-col">
@@ -37,11 +42,11 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <Layout />,
-    children: [{ index: true, element: <Home /> },
+    children: [
+      { index: true, element: <Home /> },
       { path: "about", element: <AboutUs /> },
       { path: "blog", element: <Blog /> },
       { path: "contact", element: <Contact /> },
-
     ],
   },
   { path: "/admin/login", element: <Login /> },
@@ -56,21 +61,26 @@ const router = createBrowserRouter([
       { path: "add/users", element: <CreateUserPage /> },
 
       // Projects
-      { path: "projects", element: <AllProjects /> },       // All Projects
-      { path: "add/projects", element: <AddProjects /> },   // Add Projects
+      { path: "projects", element: <AllProjects /> },
+      { path: "add/projects", element: <AddProjects /> },
 
       // Timer
-      { path: "timer", element: <Timer /> },                // Timer
-      { path: "timer/my", element: <MyTimer /> },           // My Timer
-      { path: "timer/report", element: <TimerReport /> },   // Report
+      { path: "timer", element: <Timer /> },
+      { path: "timer/my", element: <MyTimer /> },
+      { path: "timer/report", element: <TimerReport /> },
 
       // Tasks
-      { path: "tasks", element: <Tasks /> },                // 👈 Tasks
-      { path: "add/tasks", element: <AddTasks /> },         // 👈 Add Tasks
+      { path: "tasks", element: <Tasks /> },
+      { path: "add/tasks", element: <AddTasks /> },
+
+      // Blogs (الجديد)
+      { path: "blogs", element: <AdminBlogsList /> },
+      { path: "add/blog", element: <AdminAddBlog /> },
+      { path: "edit/blog/:id", element: <AdminEditBlog /> },
 
       // Settings
-      { path: "settings", element: <Settings /> },          // Settings
-      { path: "settings/all", element: <AllSettings /> },   // All Settings
+      { path: "settings", element: <Settings /> },
+      { path: "settings/all", element: <AllSettings /> },
     ],
   },
 ]);
