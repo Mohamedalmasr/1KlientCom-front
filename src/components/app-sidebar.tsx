@@ -31,6 +31,7 @@ import {
   UserPlus,
   Plus,
   BarChart2,
+  FileText, // 👈 NEW: icon for Blogs
 } from "lucide-react";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -45,6 +46,7 @@ export function AppSidebar() {
     timer: false,
     tasks: false,
     settings: false, // 👈 جديد: عشان Dropdown بتاع Settings
+    blogs: false,    // 👈 NEW: Blogs dropdown state
   });
 
   const handleLogout = () => {
@@ -275,6 +277,58 @@ export function AppSidebar() {
                           <NavLink to="/admin/add/tasks">
                             <Plus className="size-4" />
                             <span className="text-[13px]">Add Tasks</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+
+              {/* Blogs — Collapsible (All Blogs / Add Blog) */}
+              <SidebarMenuItem>
+                <Collapsible
+                  open={open.blogs}
+                  onOpenChange={(v) => setOpen((o) => ({ ...o, blogs: v }))}
+                >
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <FileText className="size-4" />
+                        <span className="text-[14px]">Blogs</span>
+                      </span>
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.blogs ? "rotate-180" : ""}`}
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent>
+                    <SidebarMenu className="mt-1 border-l pl-5">
+                      {/* All Blogs */}
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          className="h-8 rounded-lg text-sm hover:bg-gray-100/60"
+                        >
+                          <NavLink to="/admin/blogs">
+                            <FileText className="size-4" />
+                            <span className="text-[13px]">All Blogs</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+
+                      {/* Add Blog */}
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          className="h-8 rounded-lg text-sm hover:bg-gray-100/60"
+                        >
+                          <NavLink to="/admin/add/blog">
+                            <Plus className="size-4" />
+                            <span className="text-[13px]">Add Blog</span>
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
