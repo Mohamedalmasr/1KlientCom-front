@@ -6,6 +6,7 @@ import Blog from "./pages/Blog";
 import AboutUs from "./pages/AboutUs";
 import Contact from "./pages/Contact";
 import "./App.css";
+import ScrollToHash from "@/components/ScrollToHash";
 
 // admin
 import Login from "./pages/admin/Login";
@@ -26,6 +27,7 @@ import AddTasks from "./pages/admin/AddTasks";
 const Layout = () => (
   <div className="min-h-screen flex flex-col">
     <Header />
+    <ScrollToHash />
     <main className="flex-1 pt-10">
       <Outlet />
     </main>
