@@ -1,4 +1,5 @@
-import { Outlet, RouterProvider, createBrowserRouter } from "react-router-dom";
+import { Outlet, RouterProvider, createBrowserRouter, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import Home from "./pages/Home";
 import Header from "./pages/Header";
 import Footer from "./pages/Footer";
@@ -23,15 +24,27 @@ import TimerReport from "./pages/admin/TimerReport";
 import AllSettings from "./pages/admin/AllSettings";
 import Tasks from "./pages/admin/Tasks";
 import AddTasks from "./pages/admin/AddTasks";
-
-// ====== Blogs pages (حقيقية) ======
+import BlogPost from "./pages/BlogPost";
 import AdminBlogsList from "./pages/admin/AllBlogs";
 import AdminAddBlog from "./pages/admin/AddBlog";
 import AdminEditBlog from "./pages/admin/EditBlog";
 
+function ScrollToTopOnRoute() {
+  const { pathname, hash } = useLocation();
+
+  useEffect(() => {
+    if (!hash) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [pathname, hash]);
+
+  return null;
+}
+
 const Layout = () => (
   <div className="min-h-screen flex flex-col">
     <Header />
+    <ScrollToTopOnRoute />
     <ScrollToHash />
     <main className="flex-1 pt-10">
       <Outlet />
@@ -48,6 +61,7 @@ const router = createBrowserRouter([
       { index: true, element: <Home /> },
       { path: "about", element: <AboutUs /> },
       { path: "blog", element: <Blog /> },
+      { path: "blog/:id", element: <BlogPost /> },
       { path: "contact", element: <Contact /> },
     ],
   },
@@ -75,7 +89,7 @@ const router = createBrowserRouter([
       { path: "tasks", element: <Tasks /> },
       { path: "add/tasks", element: <AddTasks /> },
 
-      // Blogs (الجديد)
+      // Blogs
       { path: "blogs", element: <AdminBlogsList /> },
       { path: "add/blog", element: <AdminAddBlog /> },
       { path: "edit/blog/:id", element: <AdminEditBlog /> },

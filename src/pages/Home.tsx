@@ -18,18 +18,16 @@ export default function Home() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Scroll إلى سكشن معيّن لما نوصل للهوم ومعانا state (من غير #)
   useEffect(() => {
     const st = location.state as { scrollTo?: string } | null;
     if (st?.scrollTo) {
       const el = document.getElementById(st.scrollTo);
       if (el) {
-        const y = el.getBoundingClientRect().top + window.scrollY - 80; // تعويض الهيدر
+        const y = el.getBoundingClientRect().top + window.scrollY - 80;
         setTimeout(() => {
           window.scrollTo({ top: y, behavior: "smooth" });
         }, 50);
       }
-      // امسح الstate عشان ما يعيدش الاسكرول لما ترجع Back
       navigate(location.pathname, { replace: true });
     }
   }, [location, navigate]);
@@ -58,10 +56,10 @@ export default function Home() {
       <Hero />
 
       {/* ===== ABOUT PREVIEW ===== */}
-      <section id="about" className="py-14">
-        <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 md:grid-cols-2">
-          <div className="space-y-4">
-            <h2 className="text-3xl font-bold tracking-tight text-primary">
+      <section id="about" className="py-16">
+        <div className="mx-auto grid max-w-6xl gap-10 px-6 md:grid-cols-2">
+          <div className="space-y-5">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold leading-tight tracking-tight text-primary">
               Our vision
             </h2>
             <p className="text-muted-foreground">
@@ -74,23 +72,27 @@ export default function Home() {
             </p>
           </div>
 
-          <div>
+          <div className="md:self-center">
             <img
-              src="/static/img/about.jpg"
+              src="/image/vision_blue_only_1200w.webp"
               alt="About ONEKlient"
-              className="mx-auto aspect-[4/3] w-full max-w-[560px] rounded-xl border border-border object-cover"
+              className="
+      mx-auto w-full max-w-[560px]
+      object-contain
+      md:-translate-y-7 lg:-translate-y-14
+    "
             />
           </div>
         </div>
       </section>
 
       {/* ===== SERVICES HEADER ===== */}
-      <header id="services" className="scroll-mt-20">
-        <div className="mx-auto max-w-3xl px-6 py-10 text-center">
-          <h1 className="text-4xl font-extrabold tracking-tight">
+      <header id="services" className="scroll-mt-24">
+        <div className="mx-auto max-w-5xl px-6 py-12 text-center">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
             What We <span className="text-primary">Do</span>
-          </h1>
-          <p className="mt-3 text-muted-foreground">
+          </h2>
+          <p className="mt-4 text-base sm:text-lg text-muted-foreground">
             Web design & development, WordPress, SEO, and growth-focused digital
             solutions.
           </p>
@@ -157,7 +159,11 @@ export default function Home() {
             Book a free call and get a short roadmap with clear next steps.
           </p>
 
-          <Button asChild size="lg" className="mt-5 h-12 min-w-[220px] rounded-lg px-6">
+          <Button
+            asChild
+            size="lg"
+            className="mt-5 h-12 min-w-[220px] rounded-lg px-6"
+          >
             <Link to="/contact#contact-form">Get Started Today</Link>
           </Button>
         </div>

@@ -1,7 +1,6 @@
-// src/pages/Header.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,9 +14,47 @@ import { Menu, X, Sun, Moon } from "lucide-react";
 export default function Header() {
   const [isDark, setIsDark] = useState(false);
 
+  const [hidden, setHidden] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const lastY = useRef(0);
+  const ticking = useRef(false);
+
   useEffect(() => {
     const hasDark = document.documentElement.classList.contains("dark");
     setIsDark(hasDark);
+  }, []);
+
+  useEffect(() => {
+    lastY.current = window.scrollY;
+
+    const onScroll = () => {
+      const current = window.scrollY;
+      setScrolled(current > 4); 
+
+      if (!ticking.current) {
+        window.requestAnimationFrame(() => {
+          const goingDown = current > lastY.current;
+          const dist = Math.abs(current - lastY.current);
+
+          // دايمًا ظاهر عند أول الصفحة
+          if (current <= 8) {
+            setHidden(false);
+          } else {
+            // حساسية صغيرة للحركة
+            if (goingDown && dist > 4) setHidden(true);      
+            else if (!goingDown && dist > 2) setHidden(false); 
+          }
+
+          lastY.current = current;
+          ticking.current = false;
+        });
+
+        ticking.current = true;
+      }
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const toggleTheme = () => {
@@ -40,8 +77,12 @@ export default function Header() {
     <header
       className={[
         "fixed top-0 left-0 right-0 z-50 w-full",
-        "bg-white/70 border-b border-black/10 backdrop-blur-md",
-        "dark:bg-black/50 dark:border-white/10",
+        "transition-transform duration-300 will-change-transform",   
+        hidden ? "-translate-y-full" : "translate-y-0",
+        "backdrop-blur-md",
+        scrolled
+          ? "bg-white/75 border-b border-black/10 shadow-sm dark:bg-black/60 dark:border-white/10"
+          : "bg-white/70 border-b border-black/10 dark:bg-black/50 dark:border-white/10",
       ].join(" ")}
     >
       <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between px-5">
@@ -209,11 +250,6 @@ export default function Header() {
                     </SheetClose>
                   </li>
                 </ul>
-
-                {/* Bottom helper row (optional small note or CTA) */}
-                <div className="px-5 py-3 text-sm text-slate-600 dark:text-white/60">
-                  Browse the site with the menu above.
-                </div>
               </nav>
             </SheetContent>
           </Sheet>
