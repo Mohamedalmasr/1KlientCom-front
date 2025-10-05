@@ -45,13 +45,11 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // لو المستخدم مسجّل دخول بالفعل، رجّعه للداشبورد/المسار المقصود
+  // redirect if already signed in
   useEffect(() => {
     const token = localStorage.getItem("authToken");
     if (token) {
-      const from = (location.state as any)?.from?.pathname as
-        | string
-        | undefined;
+      const from = (location.state as any)?.from?.pathname as string | undefined;
       const to = from && from.startsWith("/admin") ? from : "/admin/dashboard";
       navigate(to, { replace: true });
     }
@@ -81,14 +79,19 @@ export default function Login() {
 
     try {
       const result = await login({ email, password });
-      // تخزين التوكن والمستخدم
+
+      // keep your existing keys
       localStorage.setItem("authToken", result.accessToken);
       localStorage.setItem("authUser", JSON.stringify(result.user));
       localStorage.setItem("rememberMe", rememberMe ? "1" : "0");
 
-      const from = (location.state as any)?.from?.pathname as
-        | string
-        | undefined;
+      // NEW: also store a unified "auth" object so sidebar/pages can read name/email
+      localStorage.setItem(
+        "auth",
+        JSON.stringify({ accessToken: result.accessToken, user: result.user })
+      );
+
+      const from = (location.state as any)?.from?.pathname as string | undefined;
       const to = from && from.startsWith("/admin") ? from : "/admin/dashboard";
 
       setToastVisible(true);
@@ -107,14 +110,12 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F6F9FF] text-[#0F172A]">
-      {/* الهيدر — نفس الجRADIENT الأزرق/النيلي */}
+      {/* header */}
       <header className="flex h-16 items-center bg-gradient-to-r from-[#1e3a8a] to-[#2563eb] px-6 text-white shadow-[0_12px_24px_rgba(15,23,42,0.12)]">
-        <h1 className="text-lg font-semibold tracking-tight">
-          ONEklient Admin
-        </h1>
+        <h1 className="text-lg font-semibold tracking-tight">ONEklient Admin</h1>
       </header>
 
-      {/* Toast نجاح — أخضر زي الأول */}
+      {/* success toast */}
       <Alert
         variant="default"
         className={cn(
@@ -145,14 +146,12 @@ export default function Login() {
         </button>
       </Alert>
 
-      {/* المحتوى */}
+      {/* content */}
       <main className="flex flex-1 items-center justify-center px-4 py-12">
         <Card className="w-full max-w-lg">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
-            <CardDescription>
-              Access your ONEklient admin dashboard.
-            </CardDescription>
+            <CardDescription>Access your ONEklient admin dashboard.</CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -208,17 +207,11 @@ export default function Login() {
                     />
                     <button
                       type="button"
-                      aria-label={
-                        showPassword ? "Hide password" : "Show password"
-                      }
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                       onClick={() => setShowPassword((prev) => !prev)}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
                     >
-                      {showPassword ? (
-                        <Eye className="h-4 w-4" />
-                      ) : (
-                        <EyeOff className="h-4 w-4" />
-                      )}
+                      {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                     </button>
                   </div>
                   {capsLockOn && (
@@ -235,9 +228,7 @@ export default function Login() {
                   <Checkbox
                     id="remember"
                     checked={rememberMe}
-                    onCheckedChange={(checked) =>
-                      setRememberMe(checked === true)
-                    }
+                    onCheckedChange={(checked) => setRememberMe(checked === true)}
                   />
                   <span className="text-slate-600">Remember me</span>
                 </label>
@@ -250,7 +241,6 @@ export default function Login() {
                 </a>
               </div>
 
-              {/* زرّ براند أزرق كما كان */}
               <Button
                 type="submit"
                 disabled={state.loading}

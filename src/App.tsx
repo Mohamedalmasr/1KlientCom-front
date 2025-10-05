@@ -21,7 +21,6 @@ import AllProjects from "./pages/admin/AllProjects";
 import AddProjects from "./pages/admin/AddProjects";
 import MyTimer from "./pages/admin/MyTimer";
 import TimerReport from "./pages/admin/TimerReport";
-import AllSettings from "./pages/admin/AllSettings";
 import Tasks from "./pages/admin/Tasks";
 import AddTasks from "./pages/admin/AddTasks";
 import BlogPost from "./pages/BlogPost";
@@ -96,7 +95,6 @@ const router = createBrowserRouter([
 
       // Settings
       { path: "settings", element: <Settings /> },
-      { path: "settings/all", element: <AllSettings /> },
     ],
   },
 ]);
