@@ -1,6 +1,8 @@
+// src/pages/admin/Settings.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getMe, updateMe, changeMyPassword } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -10,8 +12,30 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
+/* ---- helpers: logout everywhere + redirect ---- */
+function broadcastLogout() {
+  try {
+    // هانبعث إيفنت عام لكل التابات/المكونات
+    localStorage.setItem("__auth_event__", JSON.stringify({ type: "logout", ts: Date.now() }));
+    localStorage.removeItem("__auth_event__");
+  } catch {}
+}
+function clearAuthStorage() {
+  localStorage.removeItem("auth");
+  localStorage.removeItem("authToken");
+  localStorage.removeItem("authUser");
+  localStorage.removeItem("user");
+}
+function logoutAndRedirect(navigate: ReturnType<typeof useNavigate>, location: ReturnType<typeof useLocation>) {
+  clearAuthStorage();
+  broadcastLogout();
+  navigate("/admin/login", { replace: true, state: { from: location } });
+}
+
 export default function Settings() {
-  // const [me, setMe] = useState<MeResponse | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -26,24 +50,61 @@ export default function Settings() {
 
   useEffect(() => {
     let mounted = true;
+
+    // لو مافيش توكن أصلاً، روح لوجين فورًا
+    try {
+      const token =
+        localStorage.getItem("authToken") ||
+        (JSON.parse(localStorage.getItem("auth") || "null")?.accessToken as string | undefined);
+      if (!token) {
+        logoutAndRedirect(navigate, location);
+        return;
+      }
+    } catch {
+      // لو في مشكلة في الـJSON، نأمن ونخرج
+      logoutAndRedirect(navigate, location);
+      return;
+    }
+
     (async () => {
       try {
         const data = await getMe();
         if (!mounted) return;
-        // setMe(data);
         setForm({
           email: data.email ?? "",
           firstName: data.firstName ?? "",
           lastName: data.lastName ?? "",
         });
       } catch (e: any) {
+        // أي 401/403 -> خروج فوري
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          logoutAndRedirect(navigate, location);
+          return;
+        }
         setErr(e?.message || "Failed to load profile.");
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
-  }, []);
+
+    // لو حد عمل لوج أوت من مكان تاني (header / sidebar)
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === "__auth_event__") {
+        try {
+          const payload = ev.newValue ? JSON.parse(ev.newValue) : null;
+          if (payload?.type === "logout") {
+            navigate("/admin/login", { replace: true, state: { from: location } });
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [location, navigate]);
 
   async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
@@ -56,17 +117,32 @@ export default function Settings() {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
       });
-      // setMe(updated);
-      // حدث المخزن المحلي عشان السايدبار يظهر الاسم
-      const raw = localStorage.getItem("authUser");
-      if (raw) {
-        const u = JSON.parse(raw);
-        localStorage.setItem("authUser", JSON.stringify({ ...u, ...updated }));
-      }
+
+      // حدّث المفاتيح المحلية عشان السايدبار/الهيدر يشوفوا الاسم الجديد
+      try {
+        const raw = localStorage.getItem("authUser");
+        if (raw) {
+          const u = JSON.parse(raw);
+          localStorage.setItem("authUser", JSON.stringify({ ...u, ...updated }));
+        }
+        const authRaw = localStorage.getItem("auth");
+        if (authRaw) {
+          const a = JSON.parse(authRaw);
+          localStorage.setItem("auth", JSON.stringify({ ...a, user: { ...(a?.user || {}), ...updated } }));
+        }
+        // أبعت إشارة تغيير (لو حابب تسمّع في الهيدر فورًا)
+        localStorage.setItem("__auth_event__", JSON.stringify({ type: "profile:update", ts: Date.now() }));
+        localStorage.removeItem("__auth_event__");
+      } catch {}
+
       setSaveMsg("Profile updated successfully.");
     } catch (e: any) {
-      const msg = e instanceof ApiError ? e.message : "Update failed.";
-      setErr(msg);
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        // لو التوكن باظ أثناء الحفظ
+        logoutAndRedirect(navigate, location);
+        return;
+      }
+      setErr(e instanceof ApiError ? e.message : "Update failed.");
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 2000);
@@ -86,8 +162,11 @@ export default function Settings() {
       setPwd({ currentPassword: "", newPassword: "" });
       setPwdMsg("Password changed successfully.");
     } catch (e: any) {
-      const msg = e instanceof ApiError ? e.message : "Password change failed.";
-      setPwdErr(msg);
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        logoutAndRedirect(navigate, location);
+        return;
+      }
+      setPwdErr(e instanceof ApiError ? e.message : "Password change failed.");
     } finally {
       setPwdLoading(false);
       setTimeout(() => {
@@ -173,7 +252,13 @@ export default function Settings() {
             </div>
             <CardFooter className="px-0">
               <Button type="submit" disabled={saving}>
-                {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</> : "Save changes"}
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…
+                  </>
+                ) : (
+                  "Save changes"
+                )}
               </Button>
             </CardFooter>
           </form>
@@ -233,7 +318,13 @@ export default function Settings() {
             </div>
             <CardFooter className="px-0">
               <Button type="submit" disabled={pwdLoading}>
-                {pwdLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Changing…</> : "Change password"}
+                {pwdLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Changing…
+                  </>
+                ) : (
+                  "Change password"
+                )}
               </Button>
             </CardFooter>
           </form>

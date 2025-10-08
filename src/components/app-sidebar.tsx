@@ -36,64 +36,107 @@ import {
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect, useMemo, useState } from "react";
+import { clearAuth, AUTH_KEY } from "@/lib/auth"; // NEW
 
 type Me = { id: number; email: string; firstName?: string; lastName?: string };
 
-/** Read logged-in user from localStorage: prefers `authUser`, falls back to legacy keys. */
+/** Read logged-in user from localStorage (authUser / ok_auth / auth / user). */
 function useMe(): Me | null {
   const [me, setMe] = useState<Me | null>(null);
 
-  useEffect(() => {
+  const readMeFromStorage = () => {
     try {
-      // Primary: authUser (saved by login)
+      // 1) Primary: authUser
       const raw = localStorage.getItem("authUser");
       if (raw) {
         const u = JSON.parse(raw);
         if (u?.id) {
-          setMe({
+          return {
             id: Number(u.id),
             email: String(u.email || ""),
             firstName: u.firstName || undefined,
             lastName: u.lastName || undefined,
-          });
-          return;
+          } satisfies Me;
         }
       }
 
-      // Legacy: auth (object with { accessToken, user })
+      // 2) ok_auth (saveAuth)
+      const okAuth = localStorage.getItem(AUTH_KEY);
+      if (okAuth) {
+        const a = JSON.parse(okAuth);
+        const u = a?.user;
+        if (u?.id) {
+          // ما فيش first/last هنا، هنسيبهم فاضيين — العرض بياخد الاسم من الهيدر
+          return {
+            id: Number(u.id),
+            email: "",
+            firstName: undefined,
+            lastName: undefined,
+          } satisfies Me;
+        }
+      }
+
+      // 3) legacy: auth { accessToken, user }
       const authRaw = localStorage.getItem("auth");
       if (authRaw) {
         const auth = JSON.parse(authRaw);
         const u = auth?.user;
         if (u?.id) {
-          setMe({
+          return {
             id: Number(u.id),
             email: String(u.email || ""),
             firstName: u.firstName || undefined,
             lastName: u.lastName || undefined,
-          });
-          return;
+          } satisfies Me;
         }
       }
 
-      // Legacy: user
+      // 4) legacy: user
       const userRaw = localStorage.getItem("user");
       if (userRaw) {
         const u = JSON.parse(userRaw);
         if (u?.id) {
-          setMe({
+          return {
             id: Number(u.id),
             email: String(u.email || ""),
             firstName: u.firstName || undefined,
             lastName: u.lastName || undefined,
-          });
-          return;
+          } satisfies Me;
         }
       }
     } catch {
       /* ignore */
     }
-    setMe(null);
+    return null;
+  };
+
+  useEffect(() => {
+    setMe(readMeFromStorage());
+
+    // يسمع تحديثات عبر التبويبات (storage) ونفس التبويب (ok-auth-change)
+    const onChange = (e: StorageEvent | Event) => {
+      if (e instanceof StorageEvent) {
+        if (
+          e.key === "authUser" ||
+          e.key === "authToken" ||
+          e.key === "auth" ||
+          e.key === "user" ||
+          e.key === AUTH_KEY
+        ) {
+          setMe(readMeFromStorage());
+        }
+      } else {
+        // ok-auth-change (custom)
+        setMe(readMeFromStorage());
+      }
+    };
+
+    window.addEventListener("storage", onChange as any);
+    window.addEventListener("ok-auth-change", onChange as any);
+    return () => {
+      window.removeEventListener("storage", onChange as any);
+      window.removeEventListener("ok-auth-change", onChange as any);
+    };
   }, []);
 
   return me;
@@ -130,11 +173,7 @@ export function AppSidebar() {
   });
 
   const handleLogout = () => {
-    // clear session-related storage
-    localStorage.removeItem("auth");
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("authUser");
-    localStorage.removeItem("user");
+    clearAuth(); // NEW: يطلق ok-auth-change + ينظف كل المفاتيح
     navigate("/admin/login", { replace: true });
   };
 
@@ -346,7 +385,7 @@ export function AppSidebar() {
                 </Collapsible>
               </SidebarMenuItem>
 
-              {/* Settings (single page) */}
+              {/* Settings */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild className="h-9 rounded-xl hover:bg-gray-100/60">
                   <NavLink to="/admin/settings">

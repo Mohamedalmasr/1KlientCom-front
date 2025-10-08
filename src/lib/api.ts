@@ -54,13 +54,22 @@ export class ApiError extends Error {
   }
 }
 
-/** Read token primarily from `authToken`, fallback to legacy `auth` JSON. */
+/** Read token primarily from `authToken`, fallback to `ok_auth` and legacy `auth`. */
 function getAccessToken(): string | null {
   try {
+    // 1) primary
     const token = localStorage.getItem("authToken");
     if (token) return token;
 
-    // legacy shape: localStorage.setItem('auth', JSON.stringify({ accessToken, user }))
+    // 2) our unified key from saveAuth({...})
+    const okAuth = localStorage.getItem("ok_auth");
+    if (okAuth) {
+      const parsed = JSON.parse(okAuth);
+      const t = parsed?.token ?? parsed?.accessToken;
+      if (typeof t === "string" && t) return t;
+    }
+
+    // 3) legacy shape: { accessToken, user }
     const legacy = localStorage.getItem("auth");
     if (legacy) {
       const parsed = JSON.parse(legacy);

@@ -28,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { saveAuth } from "@/lib/auth"; // NEW
 
 type LoginFormState = { email: string; password: string };
 type LoginState = { loading: boolean; error?: string };
@@ -85,12 +86,24 @@ export default function Login() {
       localStorage.setItem("authUser", JSON.stringify(result.user));
       localStorage.setItem("rememberMe", rememberMe ? "1" : "0");
 
-      // NEW: also store a unified "auth" object so sidebar/pages can read name/email
+      // unified "auth" object for general reads
       localStorage.setItem(
         "auth",
         JSON.stringify({ accessToken: result.accessToken, user: result.user })
       );
 
+const displayName =
+  [result.user.firstName, result.user.lastName].filter(Boolean).join(" ").trim() ||
+  result.user.email;
+
+saveAuth({
+  token: result.accessToken,
+  user: {
+    id: String(result.user.id),
+    name: displayName,
+    // مفيش avatarUrl في الـAPI الحالي — سيبها undefined أو ضيفها لو أضفتها لاحقًا
+  },
+});
       const from = (location.state as any)?.from?.pathname as string | undefined;
       const to = from && from.startsWith("/admin") ? from : "/admin/dashboard";
 
