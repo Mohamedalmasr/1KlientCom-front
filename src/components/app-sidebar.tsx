@@ -1,4 +1,6 @@
 // src/components/app-sidebar.tsx
+"use client";
+
 import {
   Sidebar,
   SidebarContent,
@@ -11,6 +13,7 @@ import {
   SidebarMenuButton,
   SidebarSeparator,
   SidebarGroupLabel,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 import {
@@ -36,17 +39,15 @@ import {
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect, useMemo, useState } from "react";
-import { clearAuth, AUTH_KEY } from "@/lib/auth"; // NEW
+import { clearAuth, AUTH_KEY } from "@/lib/auth";
 
 type Me = { id: number; email: string; firstName?: string; lastName?: string };
 
-/** Read logged-in user from localStorage (authUser / ok_auth / auth / user). */
 function useMe(): Me | null {
   const [me, setMe] = useState<Me | null>(null);
 
   const readMeFromStorage = () => {
     try {
-      // 1) Primary: authUser
       const raw = localStorage.getItem("authUser");
       if (raw) {
         const u = JSON.parse(raw);
@@ -59,24 +60,12 @@ function useMe(): Me | null {
           } satisfies Me;
         }
       }
-
-      // 2) ok_auth (saveAuth)
       const okAuth = localStorage.getItem(AUTH_KEY);
       if (okAuth) {
         const a = JSON.parse(okAuth);
         const u = a?.user;
-        if (u?.id) {
-          // ما فيش first/last هنا، هنسيبهم فاضيين — العرض بياخد الاسم من الهيدر
-          return {
-            id: Number(u.id),
-            email: "",
-            firstName: undefined,
-            lastName: undefined,
-          } satisfies Me;
-        }
+        if (u?.id) return { id: Number(u.id), email: "" } as Me;
       }
-
-      // 3) legacy: auth { accessToken, user }
       const authRaw = localStorage.getItem("auth");
       if (authRaw) {
         const auth = JSON.parse(authRaw);
@@ -90,8 +79,6 @@ function useMe(): Me | null {
           } satisfies Me;
         }
       }
-
-      // 4) legacy: user
       const userRaw = localStorage.getItem("user");
       if (userRaw) {
         const u = JSON.parse(userRaw);
@@ -104,33 +91,21 @@ function useMe(): Me | null {
           } satisfies Me;
         }
       }
-    } catch {
-      /* ignore */
-    }
+    } catch {/* ignore */}
     return null;
   };
 
   useEffect(() => {
     setMe(readMeFromStorage());
-
-    // يسمع تحديثات عبر التبويبات (storage) ونفس التبويب (ok-auth-change)
     const onChange = (e: StorageEvent | Event) => {
       if (e instanceof StorageEvent) {
-        if (
-          e.key === "authUser" ||
-          e.key === "authToken" ||
-          e.key === "auth" ||
-          e.key === "user" ||
-          e.key === AUTH_KEY
-        ) {
+        if (["authUser", "authToken", "auth", "user", AUTH_KEY].includes(e.key ?? "")) {
           setMe(readMeFromStorage());
         }
       } else {
-        // ok-auth-change (custom)
         setMe(readMeFromStorage());
       }
     };
-
     window.addEventListener("storage", onChange as any);
     window.addEventListener("ok-auth-change", onChange as any);
     return () => {
@@ -173,28 +148,50 @@ export function AppSidebar() {
   });
 
   const handleLogout = () => {
-    clearAuth(); // NEW: يطلق ok-auth-change + ينظف كل المفاتيح
+    clearAuth();
     navigate("/admin/login", { replace: true });
   };
 
   return (
-    <Sidebar className="border-r bg-white" style={{ ["--sidebar-width" as any]: "260px" }}>
+    <Sidebar
+      collapsible="icon"
+      className="group border-r bg-white"
+      style={{ ["--sidebar-width" as any]: "260px" }}
+    >
       {/* Header */}
-      <SidebarHeader className="px-4 py-4">
-        <NavLink to="/admin/dashboard" className="flex items-start gap-2">
-          <div className="min-w-0 text-left">
-            <div className="truncate font-bold tracking-tight">OneKlient</div>
-            <div className="text-xs opacity-70">Admin</div>
-          </div>
-        </NavLink>
+      <SidebarHeader className="px-3 py-3">
+        <div className="
+          flex items-center justify-between gap-2
+          group-data-[collapsible=icon]:justify-center
+        ">
+          <NavLink
+            to="/admin/dashboard"
+            className="flex min-w-0 items-start gap-2 group-data-[collapsible=icon]:hidden"
+          >
+            <div className="min-w-0 text-left">
+              <div className="truncate font-bold tracking-tight">OneKlient</div>
+              <div className="text-xs opacity-70">Dashboard</div>
+            </div>
+          </NavLink>
+
+          <SidebarTrigger
+            aria-label="Toggle sidebar"
+            className="
+              h-10 w-10 p-0 rounded-full border bg-white shadow-sm hover:bg-gray-50 transition
+              group-data-[collapsible=icon]:mx-auto
+            "
+          />
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup className="px-2">
-          <SidebarGroupLabel className="px-2 text-xs opacity-70">Platform</SidebarGroupLabel>
+          <SidebarGroupLabel className="px-2 text-xs opacity-70 group-data-[collapsible=icon]:hidden">
+            Platform
+          </SidebarGroupLabel>
 
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
+            <SidebarMenu className="gap-2 pt-1">
               {/* Projects */}
               <SidebarMenuItem>
                 <Collapsible
@@ -202,18 +199,26 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, projects: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between">
+                    <SidebarMenuButton
+                      className="
+                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
+                        flex items-center justify-between
+                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                      "
+                    >
                       <span className="flex items-center gap-2">
-                        <LayoutGrid className="size-4" />
-                        <span className="text-[14px]">Projects</span>
+                        <LayoutGrid className="size-5" />
+                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Projects</span>
                       </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.projects ? "rotate-180" : ""}`} />
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.projects ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
+                      />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5">
+                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/projects">
                             <LayoutGrid className="size-4" />
                             <span className="text-[13px]">All Projects</span>
@@ -221,7 +226,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/add/projects">
                             <Plus className="size-4" />
                             <span className="text-[13px]">Add Projects</span>
@@ -240,18 +245,26 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, users: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between">
+                    <SidebarMenuButton
+                      className="
+                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
+                        flex items-center justify-between
+                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                      "
+                    >
                       <span className="flex items-center gap-2">
-                        <UsersIcon className="size-4" />
-                        <span className="text-[14px]">Users</span>
+                        <UsersIcon className="size-5" />
+                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Users</span>
                       </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.users ? "rotate-180" : ""}`} />
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.users ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
+                      />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5">
+                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/users">
                             <UsersIcon className="size-4" />
                             <span className="text-[13px]">All Users</span>
@@ -259,7 +272,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/add/users">
                             <UserPlus className="size-4" />
                             <span className="text-[13px]">Add User</span>
@@ -278,18 +291,26 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, timer: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between">
+                    <SidebarMenuButton
+                      className="
+                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
+                        flex items-center justify-between
+                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                      "
+                    >
                       <span className="flex items-center gap-2">
-                        <TimerIcon className="size-4" />
-                        <span className="text-[14px]">Timer</span>
+                        <TimerIcon className="size-5" />
+                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Timer</span>
                       </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.timer ? "rotate-180" : ""}`} />
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.timer ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
+                      />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5">
+                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/timer">
                             <TimerIcon className="size-4" />
                             <span className="text-[13px]">Timer</span>
@@ -297,7 +318,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/timer/report">
                             <BarChart2 className="size-4" />
                             <span className="text-[13px]">Report</span>
@@ -316,18 +337,26 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, tasks: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between">
+                    <SidebarMenuButton
+                      className="
+                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
+                        flex items-center justify-between
+                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                      "
+                    >
                       <span className="flex items-center gap-2">
-                        <ListTodo className="size-4" />
-                        <span className="text-[14px]">Tasks</span>
+                        <ListTodo className="size-5" />
+                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Tasks</span>
                       </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.tasks ? "rotate-180" : ""}`} />
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.tasks ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
+                      />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5">
+                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/tasks">
                             <ListTodo className="size-4" />
                             <span className="text-[13px]">Tasks</span>
@@ -335,7 +364,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/add/tasks">
                             <Plus className="size-4" />
                             <span className="text-[13px]">Add Tasks</span>
@@ -354,18 +383,26 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, blogs: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-9 rounded-xl hover:bg-gray-100/60 data-[state=open]:bg-gray-100/80 flex items-center justify-between">
+                    <SidebarMenuButton
+                      className="
+                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
+                        flex items-center justify-between
+                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                      "
+                    >
                       <span className="flex items-center gap-2">
-                        <FileText className="size-4" />
-                        <span className="text-[14px]">Blogs</span>
+                        <FileText className="size-5" />
+                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Blogs</span>
                       </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.blogs ? "rotate-180" : ""}`} />
+                      <ChevronDown
+                        className={`size-4 transition-transform ${open.blogs ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
+                      />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5">
+                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/blogs">
                             <FileText className="size-4" />
                             <span className="text-[13px]">All Blogs</span>
@@ -373,7 +410,7 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-8 rounded-lg text-sm hover:bg-gray-100/60">
+                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
                           <NavLink to="/admin/add/blog">
                             <Plus className="size-4" />
                             <span className="text-[13px]">Add Blog</span>
@@ -387,10 +424,16 @@ export function AppSidebar() {
 
               {/* Settings */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild className="h-9 rounded-xl hover:bg-gray-100/60">
+                <SidebarMenuButton
+                  asChild
+                  className="
+                    h-10 rounded-xl hover:bg-gray-100/70
+                    group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
+                  "
+                >
                   <NavLink to="/admin/settings">
-                    <SettingsIcon className="size-4" />
-                    <span className="text-[14px]">Settings</span>
+                    <SettingsIcon className="size-5" />
+                    <span className="text-[14px] group-data-[collapsible=icon]:hidden">Settings</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -399,21 +442,22 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator className="mx-4" />
+      {/* separator في النص */}
+      <SidebarSeparator className="mx-auto w-11/12 group-data-[collapsible=icon]:w-8/12" />
 
-      {/* User card at the bottom */}
+      {/* Footer */}
       <SidebarFooter className="px-3 pb-4">
-        <div className="flex items-center justify-between rounded-xl border bg-white px-2 py-2 shadow-sm">
+        {/* expanded */}
+        <div className="group-data-[collapsible=icon]:hidden flex items-center justify-between rounded-xl border bg-white px-2 py-2 shadow-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <Avatar className="h-9 w-9 shrink-0">
+            <Avatar className="h-9 w-9 shrink-0 rounded-full overflow-hidden ring-1 ring-black/10 shadow-sm">
               <AvatarImage src="" alt="User" />
-              <AvatarFallback>{initials}</AvatarFallback>
+              <AvatarFallback className="text-[11px] font-medium">{initials}</AvatarFallback>
             </Avatar>
             <div className="truncate text-[13px] font-semibold leading-none">
               {displayName}
             </div>
           </div>
-
           <button
             onClick={handleLogout}
             className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border px-2 text-[12px] hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-200"
@@ -421,6 +465,19 @@ export function AppSidebar() {
             title="Logout"
           >
             <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="hidden group-data-[collapsible=icon]:flex w-full items-center justify-center">
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-full border bg-white shadow-sm hover:bg-gray-50 p-0"
+            aria-label={displayName}
+            title={displayName}
+          >
+            <Avatar className="h-8 w-8 rounded-full">
+              <AvatarImage src="" alt="User" />
+              <AvatarFallback className="text-[11px]">{initials}</AvatarFallback>
+            </Avatar>
           </button>
         </div>
       </SidebarFooter>
