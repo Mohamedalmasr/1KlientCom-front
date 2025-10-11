@@ -5,6 +5,8 @@ import { defineConfig } from "vite"
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Use a relative base so the build works from any folder on the server.
+  base: "./",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
