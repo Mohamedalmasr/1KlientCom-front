@@ -137,10 +137,21 @@ const fmt = (ms: number) => {
   const ss = s % 60;
   return `${pad(h)}:${pad(m)}:${pad(ss)}`;
 };
+const to1 = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 const tKey = (projectId: string, taskId: string, email: string) =>
   `${TIMER_PREFIX}${projectId}_${taskId}_${email}`;
 
-function TaskTimer({ projectId, taskId, email }: { projectId: string; taskId: string; email: string }) {
+function TaskTimer({
+  projectId,
+  taskId,
+  email,
+  estHours,
+}: {
+  projectId: string;
+  taskId: string;
+  email: string;
+  estHours?: number;
+}) {
   const key = tKey(projectId, taskId, email);
   const [running, setRunning] = useState(false);
   const [total, setTotal] = useState(0);
@@ -169,6 +180,7 @@ function TaskTimer({ projectId, taskId, email }: { projectId: string; taskId: st
     () => (running && startedAt ? total + (Date.now() - startedAt) : total),
     [running, startedAt, total, tick]
   );
+  const elapsedHours = elapsed / 3600000;
 
   function persist(next: { running: boolean; totalMs: number; startedAt: number | null }) {
     try {
@@ -193,11 +205,18 @@ function TaskTimer({ projectId, taskId, email }: { projectId: string; taskId: st
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <div className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs text-slate-700">
         <Clock className={cn("h-3.5 w-3.5", running && "animate-pulse")} />
         <span className="tabular-nums">{fmt(elapsed)}</span>
       </div>
+
+      {typeof estHours === "number" && (
+        <div className="text-xs text-slate-600 tabular-nums">
+          {to1(elapsedHours)} / {estHours} h
+        </div>
+      )}
+
       {!running ? (
         <Button size="sm" className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700" onClick={start}>
           <Play className="mr-1 h-3.5 w-3.5" />
@@ -230,12 +249,27 @@ function StatusBadge({ s }: { s: TaskStatus }) {
   const labels: Record<TaskStatus, string> = { todo: "To Do", in_progress: "In Progress", done: "Done" };
   return <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", map[s])}>{labels[s]}</Badge>;
 }
-const AvatarCircle = ({ name }: { name: string }) => {
-  const initials = name.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
+const initialsOf = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .map((s) => s[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+const MiniUserChip = ({ name, email }: { name: string; email: string }) => {
+  const ini = initialsOf(name);
   return (
-    <Avatar className="h-8 w-8">
-      <AvatarFallback>{initials}</AvatarFallback>
-    </Avatar>
+    <div className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1 shadow-sm">
+      <Avatar className="h-6 w-6">
+        <AvatarFallback className="text-[10px]">{ini}</AvatarFallback>
+      </Avatar>
+      <div className="flex items-baseline gap-2">
+        <span className="text-sm font-medium text-slate-700">{name}</span>
+        <span className="hidden text-xs text-slate-500 sm:inline">{email}</span>
+      </div>
+    </div>
   );
 };
 
@@ -257,7 +291,7 @@ function TaskRow({ projectId, t, email }: { projectId: string; t: Task; email: s
           <StatusBadge s={t.status} />
         </div>
       </div>
-      <TaskTimer projectId={projectId} taskId={t.id} email={email} />
+      <TaskTimer projectId={projectId} taskId={t.id} email={email} estHours={t.estHours} />
     </div>
   );
 }
@@ -297,8 +331,12 @@ export default function Admin() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
+      {/* Top bar: Title + User chip (left), Filters (right) */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
+          <MiniUserChip name={viewer.name} email={viewer.email} />
+        </div>
 
         {/* Filters + Reset */}
         <div className="flex items-center gap-2">
@@ -333,21 +371,8 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* viewer + project picker */}
+      {/* Project picker (left spot where "Signed in as" used to be) */}
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Signed in as</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center gap-3 pt-0">
-            <AvatarCircle name={viewer.name} />
-            <div className="min-w-0">
-              <div className="truncate text-[14px] font-semibold text-slate-800">{viewer.name}</div>
-              <div className="truncate text-[13px] text-slate-500">{viewer.email}</div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Project</CardTitle>
