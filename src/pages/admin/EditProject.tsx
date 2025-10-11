@@ -97,7 +97,6 @@ export default function EditProject() {
 
   /* === load project detail === */
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const d = await getProjectDetail(projectId);
@@ -136,7 +135,7 @@ export default function EditProject() {
         showToast(e?.message || "Failed to load project", "error");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {};
   }, [projectId]);
 
   /* === load users for assign/leader === */
