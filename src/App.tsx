@@ -27,6 +27,7 @@ import BlogPost from "./pages/BlogPost";
 import AdminBlogsList from "./pages/admin/AllBlogs";
 import AdminAddBlog from "./pages/admin/AddBlog";
 import AdminEditBlog from "./pages/admin/EditBlog";
+import EditProject from "./pages/admin/EditProject";
 
 function ScrollToTopOnRoute() {
   const { pathname, hash } = useLocation();
@@ -78,6 +79,7 @@ const router = createBrowserRouter([
       // Projects
       { path: "projects", element: <AllProjects /> },
       { path: "add/projects", element: <AddProjects /> },
+      { path: "projects/edit/:id", element: <EditProject /> },
 
       // Timer
       { path: "timer", element: <Timer /> },

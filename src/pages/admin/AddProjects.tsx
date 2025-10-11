@@ -1,4 +1,3 @@
-// src/pages/admin/AddProjects.tsx
 import { useMemo, useState, useEffect, useDeferredValue } from "react";
 import { Check, Search, X, Plus, Edit2, Trash2, Clock3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,7 +73,7 @@ export default function AddProjects() {
   );
   function showToast(message: string, kind: "success" | "error" | "info" = "info", ms = 3500) {
     setToast({ open: true, kind, message });
-    window.clearTimeout((showToast as any)._t);
+    (showToast as any)._t && window.clearTimeout((showToast as any)._t);
     (showToast as any)._t = window.setTimeout(() => {
       setToast((t) => ({ ...t, open: false }));
     }, ms);
@@ -207,10 +206,8 @@ export default function AddProjects() {
     }
   };
 
-  // منع الدبل كليك أثناء الإنشاء
   const [submitting, setSubmitting] = useState(false);
 
-  // توليد projectCode قصير ≤ 16 حرف، أرقام/حروف فقط
   function generateProjectCode() {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -220,7 +217,7 @@ export default function AddProjects() {
     const hh = pad(now.getHours());
     const mi = pad(now.getMinutes());
     const rnd = Math.random().toString(36).slice(2, 3).toUpperCase(); // 1 char
-    // PRJ + yymmdd + hhmm + r  => طول 3+6+4+1 = 14 (<= 16)
+
     return `PRJ${yy}${mm}${dd}${hh}${mi}${rnd}`;
   }
 
@@ -242,14 +239,14 @@ export default function AddProjects() {
             .replace(",", ".")
         ) || 0;
 
-      // members + تأكيد الليدر
+      // members 
       const memberIds = team
         .map((m) => Number(m.id))
         .filter((n) => !Number.isNaN(n));
       if (leaderId && !memberIds.includes(leaderId)) memberIds.push(leaderId);
 
       const payload: CreateProjectInput = {
-        projectCode: generateProjectCode(), // قصير وآمن
+        projectCode: generateProjectCode(), 
         name: title.trim(),
         projectDesc: desc || undefined,
         leaderAID: leaderId ?? undefined,
@@ -269,7 +266,6 @@ export default function AddProjects() {
 
       await apiCreateProject(payload);
 
-      // ✅ نجاح: توست أخضر ثم تحويل
       showToast("Project created successfully 🎉 Redirecting…", "success", 1200);
       setTimeout(() => window.location.assign("/admin/projects"), 900);
     } catch (err: any) {

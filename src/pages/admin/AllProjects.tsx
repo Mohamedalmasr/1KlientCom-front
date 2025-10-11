@@ -1,10 +1,14 @@
 // src/pages/admin/AllProjects.tsx
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CalendarDays, Pencil, ExternalLink } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { listProjects, type ProjectCard } from "@/lib/api";
 
+/* ================= types ================= */
 type Project = {
   id: number;
   title: string;
@@ -17,51 +21,7 @@ type Project = {
   canEdit?: boolean;
 };
 
-const ALL: Project[] = [
-  {
-    id: 1,
-    title: "E-commerce Platform",
-    summary:
-      "Building a new online marketplace for handmade goods. The project is currently behind schedule due to unexpected integration issues with the payment gateway.",
-    status: "offtrack",
-    due: "2024-06-15",
-    issues: 28,
-    members: [{ name: "AM" }, { name: "HS" }, { name: "KT" }],
-    canEdit: true,
-  },
-  {
-    id: 2,
-    title: "Mobile Banking App",
-    summary:
-      "Developing a native mobile app for iOS and Android. Key features include fund transfers, bill payments, and biometric authentication. Progress is steady.",
-    status: "on-track",
-    due: "2024-08-22",
-    issues: 8,
-    members: [{ name: "AA" }, { name: "MM" }],
-    canEdit: true,
-  },
-  {
-    id: 3,
-    title: "Cloud Migration",
-    summary:
-      "Migrating on-premise infrastructure to a public cloud provider. The planning phase is complete, and the execution phase has started smoothly.",
-    status: "on-track",
-    due: "2024-10-01",
-    issues: 3,
-    members: [{ name: "MN" }, { name: "AS" }, { name: "RB" }, { name: "TL" }],
-  },
-  {
-    id: 4,
-    title: "Website Redesign",
-    summary:
-      "A full redesign of the corporate website with a modern UI/UX and improved performance. The project was delivered on time and on budget.",
-    status: "completed",
-    due: "2024-05-01",
-    issues: 0,
-    members: [{ name: "AM" }, { name: "HS" }, { name: "KT" }],
-  },
-];
-
+/* ================= helpers ================= */
 function formatDate(d: string) {
   const date = new Date(d);
   return date
@@ -125,9 +85,75 @@ function Members({ members }: { members: Project["members"] }) {
   );
 }
 
+function normalizeStatus(s?: string): Project["status"] {
+  const v = (s ?? "").toLowerCase();
+  if (v.includes("complete")) return "completed";
+  if (v.includes("off")) return "offtrack";
+  return "on-track";
+}
+
+function initialsFromNameOrEmail(s: string): string {
+  const name = (s || "").trim();
+  if (!name) return "??";
+  const base = name.includes("@") ? name.split("@")[0] : name;
+  const parts = base.split(/[.\s_-]+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function toProject(p: ProjectCard): Project {
+  return {
+    id: Number(p.projectAID),
+    title: p.title ?? "",
+    summary: p.description ?? "",
+    status: normalizeStatus(p.status),
+    due: p.dueDate ?? new Date().toISOString(),
+    issues: Number(p.issuesCount ?? 0),
+    members: Array.isArray(p.team)
+      ? p.team.map((n) => ({ name: initialsFromNameOrEmail(String(n)) }))
+      : [],
+    canEdit: true,
+  };
+}
+
+/* ================= page ================= */
 export default function AllProjects() {
-  // مفيش Pagination — هنعرِض كل العناصر
-  const data = ALL;
+  const [data, setData] = useState<Project[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancel = false;
+
+    async function loadAll() {
+      try {
+        const pageSize = 100;
+        let offset = 0;
+        const acc: Project[] = [];
+
+        // اجمع كل المشاريع على صفحات لحد ما تخلص
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const res = await listProjects({ limit: pageSize, offset });
+          const chunk = (res.items ?? []).map(toProject);
+          acc.push(...chunk);
+          if (chunk.length < pageSize) break;
+          offset += pageSize;
+        }
+
+        if (!cancel) setData(acc);
+      } catch {
+        if (!cancel) setData([]);
+      } finally {
+        if (!cancel) setLoaded(true);
+      }
+    }
+
+    loadAll();
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
@@ -158,6 +184,7 @@ export default function AllProjects() {
                       role="button"
                       title="Edit"
                       className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      onClick={() => navigate(`/admin/projects/${p.id}/edit`)}
                     >
                       <Pencil className="h-4 w-4" />
                     </span>
@@ -222,7 +249,9 @@ export default function AllProjects() {
           </Card>
         ))}
       </div>
-      {/* تم حذف الباجينيشن هنا */}
+
+      {/* No pagination UI */}
+      {!loaded && <div className="sr-only">Loading…</div>}
     </div>
   );
 }
