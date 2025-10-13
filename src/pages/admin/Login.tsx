@@ -28,7 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { saveAuth } from "@/lib/auth"; // NEW
+import { saveAuth, resolveRole } from "@/lib/auth"; // NEW
 
 type LoginFormState = { email: string; password: string };
 type LoginState = { loading: boolean; error?: string };
@@ -92,18 +92,20 @@ export default function Login() {
         JSON.stringify({ accessToken: result.accessToken, user: result.user })
       );
 
-const displayName =
-  [result.user.firstName, result.user.lastName].filter(Boolean).join(" ").trim() ||
-  result.user.email;
+      const displayName =
+        [result.user.firstName, result.user.lastName].filter(Boolean).join(" ").trim() ||
+        result.user.email;
+      const role = resolveRole(result.user.role);
 
-saveAuth({
-  token: result.accessToken,
-  user: {
-    id: String(result.user.id),
-    name: displayName,
-    // مفيش avatarUrl في الـAPI الحالي — سيبها undefined أو ضيفها لو أضفتها لاحقًا
-  },
-});
+      saveAuth({
+        token: result.accessToken,
+        user: {
+          id: String(result.user.id),
+          name: displayName,
+          role,
+          // مفيش avatarUrl في الـAPI الحالي — سيبها undefined أو ضيفها لو أضفتها لاحقًا
+        },
+      });
       const from = (location.state as any)?.from?.pathname as string | undefined;
       const to = from && from.startsWith("/admin") ? from : "/admin/dashboard";
 

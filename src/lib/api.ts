@@ -1,4 +1,10 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://admin.oneklient.com/";
+// src/lib/api.ts
+
+/** ------------------------------------------------------------------
+ *  Base URL (no trailing slash) + safe join for all requests
+ *  ------------------------------------------------------------------ */
+const RAW_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+export const API_BASE_URL = RAW_BASE.replace(/\/+$/, ""); // strip trailing slashes
 
 /* ============================ Types (Users / Auth) ============================ */
 
@@ -20,6 +26,7 @@ export type UserResponse = {
   lastName?: string;
   passwordCode?: string;
   passwordCodeDate?: string;
+  role?: "admin" | "member";
 };
 
 export type LoginPayload = {
@@ -80,8 +87,14 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/** join API_BASE_URL + path safely (avoid double slashes) */
+function buildUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${p}`;
+}
+
 async function request<T>(path: string, options: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(buildUrl(path), {
     headers: {
       "Content-Type": "application/json",
       ...authHeaders(),
@@ -134,6 +147,7 @@ export type MeResponse = {
   lastName?: string;
   passwordCode?: string;
   passwordCodeDate?: string;
+  role?: "admin" | "member";
 };
 
 export async function getMe(): Promise<MeResponse> {
@@ -163,7 +177,15 @@ export type GetUsersParams = {
   limit?: number;
 };
 
-export async function getUsers(params?: GetUsersParams): Promise<UserResponse[]> {
+export type UsersListResponse = {
+  items: UserResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+/** NOTE: now returns { items, total, limit, offset } */
+export async function getUsers(params?: GetUsersParams): Promise<UsersListResponse> {
   const qs = new URLSearchParams();
   if (params?.includeInactive) qs.set("includeInactive", "1");
   if (params?.q) qs.set("q", params.q);
@@ -171,18 +193,19 @@ export async function getUsers(params?: GetUsersParams): Promise<UserResponse[]>
   if (params?.page) qs.set("page", String(params.page));
   if (params?.limit) qs.set("limit", String(params.limit));
   const path = `/users${qs.toString() ? `?${qs.toString()}` : ""}`;
-  return request<UserResponse[]>(path, { method: "GET" });
+  return request<UsersListResponse>(path, { method: "GET" });
 }
 
 export async function getUser(id: number): Promise<UserResponse> {
   return request<UserResponse>(`/users/${id}`, { method: "GET" });
 }
 
-export type UpdateUserPayload = Partial<{ email: string; firstName: string; lastName: string; recSts: number }>;
+export type UpdateUserPayload = Partial<{ email: string; firstName: string; lastName: string; recSts: number; role: "admin" | "member" }>;
 export async function updateUser(id: number, payload: UpdateUserPayload): Promise<UserResponse> {
   return request<UserResponse>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
+/** These two endpoints may not exist on your backend yet — keep only if you use them. */
 export type ChangePasswordPayload = { newPassword: string; currentPassword?: string };
 export async function changeUserPassword(id: number, payload: ChangePasswordPayload): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/users/${id}/password`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -293,6 +316,7 @@ function buildFullName(firstName?: string, lastName?: string, email?: string) {
   return full || email || "";
 }
 
+/** Uses /users endpoint (paginated) and maps to AssignUser */
 export async function getAssignUsers(params?: {
   search?: string;
   onlyActive?: boolean; // default true
@@ -306,14 +330,12 @@ export async function getAssignUsers(params?: {
   const qs = new URLSearchParams();
   qs.set("limit", String(limit));
   qs.set("offset", String(offset));
-  qs.set("includeInactive", onlyActive ? "0" : "1");
+  if (!onlyActive) qs.set("includeInactive", "1");
   if (params?.search) qs.set("q", params.search);
 
   try {
-    const raw = await request<any>(`/users?${qs.toString()}`, { method: "GET" });
-    const rows: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
-
-    let mapped: AssignUser[] = rows.map((u: any) => {
+    const raw = await request<UsersListResponse>(`/users?${qs.toString()}`, { method: "GET" });
+    let mapped: AssignUser[] = raw.items.map((u: any) => {
       const id = Number(u.id ?? u.UsersAID ?? u.usersAID);
       const email = u.email ?? u.Email;
       const firstName = u.firstName ?? u.FrstNme ?? u.frstNme;
@@ -334,6 +356,65 @@ export async function getAssignUsers(params?: {
     });
 
     if (onlyActive) mapped = mapped.filter((u) => String(u.recSts) === "1" || u.recSts === 1);
+
+    return { items: mapped, total: raw.total, limit: raw.limit, offset: raw.offset };
+  } catch {
+    return { items: [], total: 0, limit, offset };
+  }
+}
+
+/** Directly uses /users/assign if موجودة عندك في الباك */
+function _makeInitialsFromAny(nameOrEmail?: string) {
+  const s = (nameOrEmail ?? "").trim();
+  if (!s) return "??";
+  const base = s.includes("@") ? s.split("@")[0] : s;
+  const parts = base.split(/[.\s_-]+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function _mapAssignUserRow(u: any): AssignUser {
+  const id = Number(u.id ?? u.UsersAID ?? u.usersAID);
+  const email = u.email ?? u.Email ?? "";
+  const firstName = u.firstName ?? u.FrstNme ?? u.frstNme;
+  const lastName = u.lastName ?? u.LastNme ?? u.lastnme;
+  const recStsNum = Number(u.recSts ?? u.RecSts ?? 1);
+  const fullName = buildFullName(firstName, lastName, email);
+  return {
+    id,
+    email,
+    firstName: firstName ?? undefined,
+    lastName: lastName ?? undefined,
+    recSts: recStsNum,
+    initials: makeInitials(firstName, lastName, email) || _makeInitialsFromAny(fullName || email),
+    fullName,
+    label: fullName,
+  };
+}
+
+export async function getAssignUsersAssign(params?: {
+  search?: string;
+  onlyActive?: boolean; // default true
+  limit?: number;       // default 20
+  offset?: number;      // default 0
+}): Promise<{ items: AssignUser[]; total: number; limit: number; offset: number }> {
+  const limit = params?.limit ?? 20;
+  const offset = params?.offset ?? 0;
+  const onlyActive = params?.onlyActive ?? true;
+
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set("search", params.search);
+  qs.set("onlyActive", onlyActive ? "1" : "0");
+  qs.set("limit", String(limit));
+  qs.set("offset", String(offset));
+
+  try {
+    const raw = await request<any>(`/users/assign?${qs.toString()}`, { method: "GET" });
+    const rows: any[] = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+    let mapped = rows.map(_mapAssignUserRow);
+
+    if (onlyActive) mapped = mapped.filter((u) => String(u.recSts) === "1" || u.recSts === 1);
+
     const total =
       typeof raw?.total === "number"
         ? raw.total
@@ -346,7 +427,6 @@ export async function getAssignUsers(params?: {
     return { items: [], total: 0, limit, offset };
   }
 }
-
 
 /* ======================= Project Types (Our Services) ======================= */
 export const PROJECT_TYPES: string[] = [
@@ -361,7 +441,6 @@ export const PROJECT_TYPES: string[] = [
 export function getProjectTypes(): string[] {
   return PROJECT_TYPES.slice();
 }
-
 
 /* ============================ Projects & Tasks API ============================ */
 
@@ -387,7 +466,7 @@ export type CreateProjectInput = {
 };
 
 export type UpdateProjectInput = Partial<Omit<CreateProjectInput, "members" | "tasks">> & {
-  members?: number[]; 
+  members?: number[];
 };
 
 export type UpdateTaskInput = Partial<{
@@ -566,83 +645,8 @@ export async function listProjects(params?: {
   return { items, total, limit, offset };
 }
 
-/* =======================================================================
-   ⬇⬇⬇ APPEND-ONLY ADDITIONS — Paste below your existing code ⬇⬇⬇
-   (لا تعدّل في اللي فوق — كل الإضافات هنا مستقلة)
-======================================================================= */
+/* ---------- Project details + helpers ---------- */
 
-/* ---------- Extra: safer mapping helpers (private to this block) ---------- */
-function _makeInitialsFromAny(nameOrEmail?: string) {
-  const s = (nameOrEmail ?? "").trim();
-  if (!s) return "??";
-  const base = s.includes("@") ? s.split("@")[0] : s;
-  const parts = base.split(/[.\s_-]+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function _mapAssignUserRow(u: any): AssignUser {
-  const id = Number(u.id ?? u.UsersAID ?? u.usersAID);
-  const email = u.email ?? u.Email ?? "";
-  const firstName = u.firstName ?? u.FrstNme ?? u.frstNme;
-  const lastName = u.lastName ?? u.LastNme ?? u.lastnme;
-  const recStsNum = Number(u.recSts ?? u.RecSts ?? 1);
-  const fullName = buildFullName(firstName, lastName, email);
-  return {
-    id,
-    email,
-    firstName: firstName ?? undefined,
-    lastName: lastName ?? undefined,
-    recSts: recStsNum,
-    initials: makeInitials(firstName, lastName, email) || _makeInitialsFromAny(fullName || email),
-    fullName,
-    label: fullName,
-  };
-}
-
-/* -----------------------------------------------------------------------
-   1) NEW: getAssignUsersAssign() — يضرب على /users/assign مباشرة
-   من غير ما نمس getAssignUsers القديمة (اللي بتضرب /users)
------------------------------------------------------------------------- */
-export async function getAssignUsersAssign(params?: {
-  search?: string;
-  onlyActive?: boolean; // default true
-  limit?: number;       // default 20
-  offset?: number;      // default 0
-}): Promise<{ items: AssignUser[]; total: number; limit: number; offset: number }> {
-  const limit = params?.limit ?? 20;
-  const offset = params?.offset ?? 0;
-  const onlyActive = params?.onlyActive ?? true;
-
-  const qs = new URLSearchParams();
-  if (params?.search) qs.set("search", params.search);
-  qs.set("onlyActive", onlyActive ? "1" : "0");
-  qs.set("limit", String(limit));
-  qs.set("offset", String(offset));
-
-  try {
-    const raw = await request<any>(`/users/assign?${qs.toString()}`, { method: "GET" });
-    const rows: any[] = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
-    let mapped = rows.map(_mapAssignUserRow);
-
-    if (onlyActive) mapped = mapped.filter((u) => String(u.recSts) === "1" || u.recSts === 1);
-
-    const total =
-      typeof raw?.total === "number"
-        ? raw.total
-        : typeof raw?.count === "number"
-          ? raw.count
-          : mapped.length;
-
-    return { items: mapped, total, limit, offset };
-  } catch {
-    return { items: [], total: 0, limit, offset };
-  }
-}
-
-/* -----------------------------------------------------------------------
-   2) NEW: getProjectDetail() — تفاصيل كاملة (Project + Members + Tasks)
------------------------------------------------------------------------- */
 export type ProjectDetail = {
   project: {
     projectAID: number;
@@ -686,10 +690,7 @@ export async function getProjectDetail(projectId: number): Promise<ProjectDetail
   return request<ProjectDetail>(`/projects/${projectId}`, { method: "GET" });
 }
 
-/* -----------------------------------------------------------------------
-   3) NEW: listAllProjects() — يجيب كل المشاريع على دفعات limit/offset
-   (مفيد لصفحة AllProjects اللي عايزاها كلها مرة واحدة)
------------------------------------------------------------------------- */
+/** Fetch all projects in batches (limit/offset) */
 export async function listAllProjects(options?: {
   limit?: number;   // default 100
   offset?: number;  // default 0
@@ -715,9 +716,6 @@ export async function listAllProjects(options?: {
   return acc;
 }
 
-/* -----------------------------------------------------------------------
-   4) NEW: updateProjectMembers() — هيلبر صغير مبني على updateProject
------------------------------------------------------------------------- */
 export async function updateProjectMembers(projectId: number, members: number[], leaderAID?: number) {
   const patch: UpdateProjectInput = { members: members.slice() };
   if (typeof leaderAID === "number") {
@@ -726,9 +724,7 @@ export async function updateProjectMembers(projectId: number, members: number[],
   return updateProject(projectId, patch);
 }
 
-/* -----------------------------------------------------------------------
-   5) NEW: claimTaskByEmail() — يحول إيميل لـ UsersAID ثم يستعمل claimTask
------------------------------------------------------------------------- */
+/** Claim task by email (resolve UsersAID first via /users/assign) */
 export async function claimTaskByEmail(
   projectId: number,
   taskId: number,
@@ -741,3 +737,4 @@ export async function claimTaskByEmail(
   if (!user) throw new Error(`User not found for email: ${email}`);
   return claimTask(projectId, taskId, user.id, role, exclusive);
 }
+  

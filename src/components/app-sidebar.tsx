@@ -1,4 +1,3 @@
-// src/components/app-sidebar.tsx
 "use client";
 
 import {
@@ -39,57 +38,50 @@ import {
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect, useMemo, useState } from "react";
-import { clearAuth, AUTH_KEY } from "@/lib/auth";
+import { clearAuth, AUTH_KEY, getStoredRole, type AuthRole } from "@/lib/auth";
 
-type Me = { id: number; email: string; firstName?: string; lastName?: string };
+type Me = {
+  id: number;
+  email: string;
+  role: AuthRole;
+  firstName?: string;
+  lastName?: string;
+};
 
 function useMe(): Me | null {
   const [me, setMe] = useState<Me | null>(null);
 
   const readMeFromStorage = () => {
     try {
-      const raw = localStorage.getItem("authUser");
-      if (raw) {
-        const u = JSON.parse(raw);
-        if (u?.id) {
-          return {
-            id: Number(u.id),
-            email: String(u.email || ""),
-            firstName: u.firstName || undefined,
-            lastName: u.lastName || undefined,
-          } satisfies Me;
+      const parse = (key: string) => {
+        const value = localStorage.getItem(key);
+        if (!value) return null;
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
         }
-      }
-      const okAuth = localStorage.getItem(AUTH_KEY);
-      if (okAuth) {
-        const a = JSON.parse(okAuth);
-        const u = a?.user;
-        if (u?.id) return { id: Number(u.id), email: "" } as Me;
-      }
-      const authRaw = localStorage.getItem("auth");
-      if (authRaw) {
-        const auth = JSON.parse(authRaw);
-        const u = auth?.user;
-        if (u?.id) {
-          return {
-            id: Number(u.id),
-            email: String(u.email || ""),
-            firstName: u.firstName || undefined,
-            lastName: u.lastName || undefined,
-          } satisfies Me;
-        }
-      }
-      const userRaw = localStorage.getItem("user");
-      if (userRaw) {
-        const u = JSON.parse(userRaw);
-        if (u?.id) {
-          return {
-            id: Number(u.id),
-            email: String(u.email || ""),
-            firstName: u.firstName || undefined,
-            lastName: u.lastName || undefined,
-          } satisfies Me;
-        }
+      };
+
+      const authUser = parse("authUser");
+      const auth = parse("auth");
+      const legacyUser = parse("user");
+      const okAuth = parse(AUTH_KEY);
+
+      const candidate =
+        authUser ??
+        (auth && typeof auth === "object" ? (auth as any).user : null) ??
+        legacyUser ??
+        (okAuth && typeof okAuth === "object" ? (okAuth as any).user : null);
+
+      if (candidate?.id) {
+        return {
+          id: Number(candidate.id),
+          email: String(candidate.email || ""),
+          firstName: candidate.firstName || undefined,
+          lastName: candidate.lastName || undefined,
+          role: getStoredRole(), // ← الدور المؤكد
+        } satisfies Me;
       }
     } catch {/* ignore */}
     return null;
@@ -120,6 +112,10 @@ function useMe(): Me | null {
 export function AppSidebar() {
   const navigate = useNavigate();
   const me = useMe();
+
+  // 🔴 المهم: الدور يُقرأ من getStoredRole() (مع fallback على JWT)
+  const role: AuthRole = getStoredRole();
+  const isAdmin = role === "admin";
 
   const displayName = useMemo(() => {
     if (!me) return "Guest";
@@ -160,10 +156,7 @@ export function AppSidebar() {
     >
       {/* Header */}
       <SidebarHeader className="px-3 py-3">
-        <div className="
-          flex items-center justify-between gap-2
-          group-data-[collapsible=icon]:justify-center
-        ">
+        <div className="flex items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
           <NavLink
             to="/admin/dashboard"
             className="flex min-w-0 items-start gap-2 group-data-[collapsible=icon]:hidden"
@@ -192,97 +185,85 @@ export function AppSidebar() {
 
           <SidebarGroupContent>
             <SidebarMenu className="gap-2 pt-1">
-              {/* Projects */}
-              <SidebarMenuItem>
-                <Collapsible
-                  open={open.projects}
-                  onOpenChange={(v) => setOpen((o) => ({ ...o, projects: v }))}
-                >
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      className="
-                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
-                        flex items-center justify-between
-                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                      "
-                    >
-                      <span className="flex items-center gap-2">
-                        <LayoutGrid className="size-5" />
-                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Projects</span>
-                      </span>
-                      <ChevronDown
-                        className={`size-4 transition-transform ${open.projects ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
-                      />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/projects">
-                            <LayoutGrid className="size-4" />
-                            <span className="text-[13px]">All Projects</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/add/projects">
-                            <Plus className="size-4" />
-                            <span className="text-[13px]">Add Projects</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  </CollapsibleContent>
-                </Collapsible>
-              </SidebarMenuItem>
+              {/* Projects (admin only) */}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <Collapsible
+                    open={open.projects}
+                    onOpenChange={(v) => setOpen((o) => ({ ...o, projects: v }))}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
+                        <span className="flex items-center gap-2">
+                          <LayoutGrid className="size-5" />
+                          <span className="text-[14px] group-data-[collapsible=icon]:hidden">Projects</span>
+                        </span>
+                        <ChevronDown className={`size-4 transition-transform ${open.projects ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/projects">
+                              <LayoutGrid className="size-4" />
+                              <span className="text-[13px]">All Projects</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/add/projects">
+                              <Plus className="size-4" />
+                              <span className="text-[13px]">Add Projects</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      </SidebarMenu>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </SidebarMenuItem>
+              )}
 
-              {/* Users */}
-              <SidebarMenuItem>
-                <Collapsible
-                  open={open.users}
-                  onOpenChange={(v) => setOpen((o) => ({ ...o, users: v }))}
-                >
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      className="
-                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
-                        flex items-center justify-between
-                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                      "
-                    >
-                      <span className="flex items-center gap-2">
-                        <UsersIcon className="size-5" />
-                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Users</span>
-                      </span>
-                      <ChevronDown
-                        className={`size-4 transition-transform ${open.users ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
-                      />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/users">
-                            <UsersIcon className="size-4" />
-                            <span className="text-[13px]">All Users</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/add/users">
-                            <UserPlus className="size-4" />
-                            <span className="text-[13px]">Add User</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  </CollapsibleContent>
-                </Collapsible>
-              </SidebarMenuItem>
+              {/* Users (admin only) */}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <Collapsible
+                    open={open.users}
+                    onOpenChange={(v) => setOpen((o) => ({ ...o, users: v }))}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
+                        <span className="flex items-center gap-2">
+                          <UsersIcon className="size-5" />
+                          <span className="text-[14px] group-data-[collapsible=icon]:hidden">Users</span>
+                        </span>
+                        <ChevronDown className={`size-4 transition-transform ${open.users ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/users">
+                              <UsersIcon className="size-4" />
+                              <span className="text-[13px]">All Users</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/add/users">
+                              <UserPlus className="size-4" />
+                              <span className="text-[13px]">Add User</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      </SidebarMenu>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </SidebarMenuItem>
+              )}
 
               {/* Timer */}
               <SidebarMenuItem>
@@ -291,20 +272,12 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, timer: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      className="
-                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
-                        flex items-center justify-between
-                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                      "
-                    >
+                    <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
                       <span className="flex items-center gap-2">
                         <TimerIcon className="size-5" />
                         <span className="text-[14px] group-data-[collapsible=icon]:hidden">Timer</span>
                       </span>
-                      <ChevronDown
-                        className={`size-4 transition-transform ${open.timer ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
-                      />
+                      <ChevronDown className={`size-4 transition-transform ${open.timer ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
@@ -317,14 +290,16 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/timer/report">
-                            <BarChart2 className="size-4" />
-                            <span className="text-[13px]">Report</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
+                      {isAdmin && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/timer/report">
+                              <BarChart2 className="size-4" />
+                              <span className="text-[13px]">Report</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
                     </SidebarMenu>
                   </CollapsibleContent>
                 </Collapsible>
@@ -337,20 +312,12 @@ export function AppSidebar() {
                   onOpenChange={(v) => setOpen((o) => ({ ...o, tasks: v }))}
                 >
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      className="
-                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
-                        flex items-center justify-between
-                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                      "
-                    >
+                    <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
                       <span className="flex items-center gap-2">
                         <ListTodo className="size-5" />
                         <span className="text-[14px] group-data-[collapsible=icon]:hidden">Tasks</span>
                       </span>
-                      <ChevronDown
-                        className={`size-4 transition-transform ${open.tasks ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
-                      />
+                      <ChevronDown className={`size-4 transition-transform ${open.tasks ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
@@ -363,73 +330,66 @@ export function AppSidebar() {
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/add/tasks">
-                            <Plus className="size-4" />
-                            <span className="text-[13px]">Add Tasks</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
+                      {isAdmin && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/add/tasks">
+                              <Plus className="size-4" />
+                              <span className="text-[13px]">Add Tasks</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
                     </SidebarMenu>
                   </CollapsibleContent>
                 </Collapsible>
               </SidebarMenuItem>
 
-              {/* Blogs */}
-              <SidebarMenuItem>
-                <Collapsible
-                  open={open.blogs}
-                  onOpenChange={(v) => setOpen((o) => ({ ...o, blogs: v }))}
-                >
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      className="
-                        h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90
-                        flex items-center justify-between
-                        group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                      "
-                    >
-                      <span className="flex items-center gap-2">
-                        <FileText className="size-5" />
-                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Blogs</span>
-                      </span>
-                      <ChevronDown
-                        className={`size-4 transition-transform ${open.blogs ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`}
-                      />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/blogs">
-                            <FileText className="size-4" />
-                            <span className="text-[13px]">All Blogs</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/add/blog">
-                            <Plus className="size-4" />
-                            <span className="text-[13px]">Add Blog</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  </CollapsibleContent>
-                </Collapsible>
-              </SidebarMenuItem>
+              {/* Blogs (admin only) */}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <Collapsible
+                    open={open.blogs}
+                    onOpenChange={(v) => setOpen((o) => ({ ...o, blogs: v }))}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
+                        <span className="flex items-center gap-2">
+                          <FileText className="size-5" />
+                          <span className="text-[14px] group-data-[collapsible=icon]:hidden">Blogs</span>
+                        </span>
+                        <ChevronDown className={`size-4 transition-transform ${open.blogs ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/blogs">
+                              <FileText className="size-4" />
+                              <span className="text-[13px]">All Blogs</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
+                            <NavLink to="/admin/add/blog">
+                              <Plus className="size-4" />
+                              <span className="text-[13px]">Add Blog</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      </SidebarMenu>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </SidebarMenuItem>
+              )}
 
               {/* Settings */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  className="
-                    h-10 rounded-xl hover:bg-gray-100/70
-                    group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center
-                  "
+                  className="h-10 rounded-xl hover:bg-gray-100/70 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center"
                 >
                   <NavLink to="/admin/settings">
                     <SettingsIcon className="size-5" />
@@ -442,21 +402,16 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* separator في النص */}
       <SidebarSeparator className="mx-auto w-11/12 group-data-[collapsible=icon]:w-8/12" />
 
-      {/* Footer */}
       <SidebarFooter className="px-3 pb-4">
-        {/* expanded */}
         <div className="group-data-[collapsible=icon]:hidden flex items-center justify-between rounded-xl border bg-white px-2 py-2 shadow-sm">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar className="h-9 w-9 shrink-0 rounded-full overflow-hidden ring-1 ring-black/10 shadow-sm">
               <AvatarImage src="" alt="User" />
               <AvatarFallback className="text-[11px] font-medium">{initials}</AvatarFallback>
             </Avatar>
-            <div className="truncate text-[13px] font-semibold leading-none">
-              {displayName}
-            </div>
+            <div className="truncate text-[13px] font-semibold leading-none">{displayName}</div>
           </div>
           <button
             onClick={handleLogout}
