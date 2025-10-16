@@ -29,15 +29,16 @@ import AdminAddBlog from "./pages/admin/AddBlog";
 import AdminEditBlog from "./pages/admin/EditBlog";
 import EditProject from "./pages/admin/EditProject";
 
+/* ⬇️ (A1) NEW: admin contacts page */
+import AdminContacts from "./pages/admin/Contacts";
+
 function ScrollToTopOnRoute() {
   const { pathname, hash } = useLocation();
-
   useEffect(() => {
     if (!hash) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [pathname, hash]);
-
   return null;
 }
 
@@ -79,6 +80,9 @@ const router = createBrowserRouter([
       // Projects
       { path: "projects", element: <AllProjects /> },
       { path: "add/projects", element: <AddProjects /> },
+
+      // (keep both edit routes working)
+      { path: "projects/:id/edit", element: <EditProject /> },
       { path: "projects/edit/:id", element: <EditProject /> },
 
       // Timer
@@ -94,6 +98,9 @@ const router = createBrowserRouter([
       { path: "blogs", element: <AdminBlogsList /> },
       { path: "add/blog", element: <AdminAddBlog /> },
       { path: "edit/blog/:id", element: <AdminEditBlog /> },
+
+      /* ⬇️ (A1) NEW: Contacts route */
+      { path: "contacts", element: <AdminContacts /> },
 
       // Settings
       { path: "settings", element: <Settings /> },

@@ -1,12 +1,26 @@
 // src/pages/admin/AllProjects.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, Pencil, ExternalLink } from "lucide-react";
+import { CalendarDays, Pencil, ExternalLink, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { listProjects, type ProjectCard } from "@/lib/api";
+import { listProjects, type ProjectCard, deleteProject } from "@/lib/api";
+import { toast } from "sonner";
+
+/* ===== UI: confirm dialog (A1: add-only) ===== */
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+/* ============================================ */
 
 /* ================= types ================= */
 type Project = {
@@ -45,7 +59,7 @@ function StatusBadge({ s }: { s: Project["status"] }) {
     },
     completed: {
       label: "Completed",
-      cls: "bg-blue-100 text-blue-700 border border-blue-200",
+      cls: "bg-blue-100 text-blue-700 border-blue-200",
     },
   };
   const m = map[s];
@@ -122,6 +136,10 @@ export default function AllProjects() {
   const [loaded, setLoaded] = useState(false);
   const navigate = useNavigate();
 
+  /* === delete dialog state (A1) === */
+  const [openDelete, setOpenDelete] = useState(false);
+  const [pendingId, setPendingId] = useState<number | null>(null);
+
   useEffect(() => {
     let cancel = false;
 
@@ -155,6 +173,32 @@ export default function AllProjects() {
     };
   }, []);
 
+  /* ====== delete handlers (A1) ====== */
+  function askDelete(id: number) {
+    setPendingId(id);
+    setOpenDelete(true);
+  }
+
+  async function confirmDelete() {
+    if (!pendingId) return;
+    const id = pendingId;
+    setOpenDelete(false);
+    setPendingId(null);
+
+    await toast.promise(
+      deleteProject(id),
+      {
+        loading: "Deleting project…",
+        success: () => {
+          setData((cur) => cur.filter((p) => p.id !== id));
+          return "Project deleted successfully";
+        },
+        error: (e) => (e?.message as string) || "Failed to delete project",
+      }
+    );
+  }
+  /* ================================== */
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
       <div className="mb-4">
@@ -187,6 +231,17 @@ export default function AllProjects() {
                       onClick={() => navigate(`/admin/projects/${p.id}/edit`)}
                     >
                       <Pencil className="h-4 w-4" />
+                    </span>
+                  )}
+                  {/* Delete */}
+                  {p.canEdit && (
+                    <span
+                      role="button"
+                      title="Delete"
+                      className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      onClick={() => askDelete(p.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </span>
                   )}
                 </div>
@@ -252,6 +307,31 @@ export default function AllProjects() {
 
       {/* No pagination UI */}
       {!loaded && <div className="sr-only">Loading…</div>}
+
+      {/* ===== Delete confirm dialog (A1) ===== */}
+      <AlertDialog open={openDelete} onOpenChange={setOpenDelete}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900">
+              Delete project?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600">
+              This action cannot be undone. The project and its task
+              assignments will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="rounded-lg bg-[#1f4ed8] text-white hover:bg-[#1e3ed8]"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* ===================================== */}
     </div>
   );
 }

@@ -252,6 +252,116 @@ function normalizeContactPayload(p: ContactPayload): ContactPayload {
 export async function sendContact(payload: ContactPayload): Promise<ContactResponse> {
   return request<ContactResponse>("/contact", { method: "POST", body: JSON.stringify(normalizeContactPayload(payload)) });
 }
+/* ========================= Admin Contacts (list/view/delete) ========================= */
+
+export type AdminContactRow = {
+  id: number;                 // ContactAID أو Id
+  fstname: string;
+  lstname: string;
+  phone: string;
+  email?: string | null;
+  // القيم الموحّدة للبجت
+  budget?: "U2K" | "2-5K" | "5-10" | "10+";
+  webdesign?: boolean;
+  wordpress?: boolean;
+  seo?: boolean;
+  marketing?: boolean;
+  msg?: string | null;
+  createdAt?: string;         // ISO
+  recSts?: number | "0" | "1";
+};
+
+// استجابة لستة الكونتاكتس بالترقيم
+export type ListContactsResponse = {
+  items: AdminContactRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+// مابات بسيطة لتطبيع الأسماء الغريبة من الباك لو اختلفت
+function _mapContactRow(r: any): AdminContactRow {
+  const id =
+    Number(r.id ?? r.contactAID ?? r.ContactAID ?? r.contact_id ?? r.Id);
+  return {
+    id,
+    fstname: r.fstname ?? r.firstName ?? r.FrstNme ?? "",
+    lstname: r.lstname ?? r.lastName ?? r.LastNme ?? "",
+    phone: r.phone ?? r.Phone ?? "",
+    email: r.email ?? r.Email ?? null,
+    budget:
+      (r.budget as any) === "under-2k"
+        ? "U2K"
+        : (r.budget as any) === "2k-5k"
+        ? "2-5K"
+        : (r.budget as any) === "5k-10k"
+        ? "5-10"
+        : (r.budget as any) === "10k-plus"
+        ? "10+"
+        : (r.budget as any), // لو جاية أصلاً U2K/2-5K/...
+    webdesign: Boolean(r.webdesign ?? r.WebDesign ?? r.webDesign),
+    wordpress: Boolean(r.wordpress ?? r.WordPress),
+    seo: Boolean(r.seo ?? r.SEO),
+    marketing: Boolean(r.marketing ?? r.Marketing),
+    msg: r.msg ?? r.message ?? r.Msg ?? null,
+    createdAt:
+      r.createdAt ??
+      r.creaDt ??
+      r.created_at ??
+      (r.CreaDt ? new Date(r.CreaDt).toISOString() : undefined),
+    recSts: r.recSts ?? r.RecSts,
+  };
+}
+
+/** GET /admin/contacts?limit&offset&q  */
+export async function listContacts(params?: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ListContactsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  qs.set("limit", String(params?.limit ?? 20));
+  qs.set("offset", String(params?.offset ?? 0));
+
+  const raw = await request<any>(`/admin/contacts?${qs.toString()}`, {
+    method: "GET",
+  });
+
+  const itemsRaw: any[] = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.items)
+    ? raw.items
+    : [];
+
+  const items = itemsRaw.map(_mapContactRow);
+
+  const total =
+    typeof raw?.total === "number"
+      ? raw.total
+      : typeof raw?.count === "number"
+      ? raw.count
+      : items.length;
+
+  return {
+    items,
+    total,
+    limit: Number(params?.limit ?? raw?.limit ?? 20),
+    offset: Number(params?.offset ?? raw?.offset ?? 0),
+  };
+}
+
+/** GET /admin/contacts/:id  */
+export async function getContact(id: number): Promise<AdminContactRow> {
+  const raw = await request<any>(`/admin/contacts/${id}`, { method: "GET" });
+  return _mapContactRow(raw);
+}
+
+/** DELETE /admin/contacts/:id  */
+export async function deleteContact(id: number): Promise<{ success: boolean }> {
+  await request<void>(`/admin/contacts/${id}`, { method: "DELETE" });
+  return { success: true };
+}
 
 /* ================================== Blogs API ================================= */
 

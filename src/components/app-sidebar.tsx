@@ -34,6 +34,7 @@ import {
   Plus,
   BarChart2,
   FileText,
+  Mail,                // ⬅️ (A1) NEW: icon for Contacts
 } from "lucide-react";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -384,6 +385,19 @@ export function AppSidebar() {
                   </Collapsible>
                 </SidebarMenuItem>
               )}
+
+              {/* (A1) NEW: Contacts — placed before Settings */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  className="h-10 rounded-xl hover:bg-gray-100/70 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center"
+                >
+                  <NavLink to="/admin/contacts">
+                    <Mail className="size-5" />
+                    <span className="text-[14px] group-data-[collapsible=icon]:hidden">Contacts</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
               {/* Settings */}
               <SidebarMenuItem>
