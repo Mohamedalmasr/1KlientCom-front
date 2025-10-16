@@ -12,16 +12,33 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Clock,
   Play,
   Square,
   RefreshCw,
   X,
-  ToggleLeft,
   Check,
+  ToggleLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetClose,
+} from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /* ===================== Types ===================== */
 type Priority = "High" | "Medium" | "Low";
@@ -34,7 +51,7 @@ type Task = {
   priority: Priority;
   status: TaskStatus;
   estHours?: number;
-  assignedTo?: string[]; // emails
+  assignedTo?: string[];
 };
 type Project = {
   id: string;
@@ -48,7 +65,7 @@ type TableFilters = {
   searchSubject: string;
   priority: "" | Priority;
   status: "" | TaskStatus;
-  assignee: "" | "unassigned" | string; // email
+  assignee: "" | "unassigned" | string;
 };
 
 /* ===================== Demo data ===================== */
@@ -152,6 +169,15 @@ const DEFAULT_USER: Employee = PEOPLE[1];
 /* ===================== Timer helpers ===================== */
 const TIMER_PREFIX = "ok_time_";
 const NOTE_SUFFIX = "_last_note";
+const SESSIONS_SUFFIX = "_sessions";
+
+type SessionLog = {
+  start: number;
+  end: number;
+  durationMs: number;
+  note?: string;
+};
+
 const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 const fmt = (ms: number) => {
   const s = Math.floor(ms / 1000);
@@ -163,9 +189,69 @@ const fmt = (ms: number) => {
 const to1 = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 const tKey = (projectId: string, taskId: string, email: string) =>
   `${TIMER_PREFIX}${projectId}_${taskId}_${email}`;
+const sessionsKey = (projectId: string, taskId: string, email: string) =>
+  `${tKey(projectId, taskId, email)}${SESSIONS_SUFFIX}`;
+
+function appendSession(
+  projectId: string,
+  taskId: string,
+  email: string,
+  session: SessionLog
+) {
+  try {
+    const k = sessionsKey(projectId, taskId, email);
+    const list: SessionLog[] = JSON.parse(localStorage.getItem(k) || "[]");
+    list.push(session);
+    localStorage.setItem(k, JSON.stringify(list));
+  } catch {}
+}
+
+function readAllParticipantsForTask(projectId: string, taskId: string) {
+  const participants: Record<
+    string,
+    { email: string; totalMs: number; sessions: SessionLog[] }
+  > = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i) || "";
+    const prefix = `${TIMER_PREFIX}${projectId}_${taskId}_`;
+    if (!key.startsWith(prefix)) continue;
+
+    // تجاهل مفاتيح النوت
+    if (key.endsWith(NOTE_SUFFIX)) continue;
+
+    if (!key.endsWith(SESSIONS_SUFFIX)) {
+      const email = key.slice(prefix.length);
+      if (!participants[email]) {
+        participants[email] = { email, totalMs: 0, sessions: [] };
+      }
+      try {
+        const t = JSON.parse(localStorage.getItem(key) || "{}");
+        participants[email].totalMs = Number(t?.totalMs || 0);
+      } catch {}
+      continue;
+    }
+
+    const email = key.slice(
+      prefix.length,
+      key.length - SESSIONS_SUFFIX.length
+    );
+    if (!participants[email]) {
+      participants[email] = { email, totalMs: 0, sessions: [] };
+    }
+    try {
+      participants[email].sessions = JSON.parse(
+        localStorage.getItem(key) || "[]"
+      );
+    } catch {}
+  }
+  return Object.values(participants);
+}
+
+function humanHours(ms: number) {
+  return (Math.round((ms / 3600000) * 10) / 10).toFixed(1);
+}
 
 /* ===================== TaskTimer ===================== */
-/** يوفّر onRequestStop للبارنت علشان يطلب نوت قبل الإيقاف. */
 function TaskTimer({
   projectId,
   taskId,
@@ -178,8 +264,12 @@ function TaskTimer({
   taskId: string;
   email: string;
   estHours?: number;
-  onRequestStop?: (proceed: () => void) => void; // يستدعيه قبل الإيقاف لإجبار كتابة النوت
-  onStopped?: (totalMs: number) => void; // كولباك اختياري بعد الإيقاف
+  onRequestStop?: (proceed: () => void) => void;
+  onStopped?: (info: {
+    totalMs: number;
+    startedAt: number;
+    stoppedAt: number;
+  }) => void;
 }) {
   const key = tKey(projectId, taskId, email);
   const [running, setRunning] = useState(false);
@@ -229,7 +319,6 @@ function TaskTimer({
     persist({ running: true, totalMs: total, startedAt: now });
   }
 
-  // الإيقاف الحقيقي
   const doStop = () => {
     if (!running || !startedAt) return;
     const now = Date.now();
@@ -238,15 +327,11 @@ function TaskTimer({
     setStartedAt(null);
     setTotal(sum);
     persist({ running: false, totalMs: sum, startedAt: null });
-    onStopped?.(sum);
+    onStopped?.({ totalMs: sum, startedAt, stoppedAt: now });
   };
 
-  // الإيقاف المحمي: لو فيه onRequestStop يطلب نوت قبل doStop
   function stopGuarded() {
-    if (onRequestStop) {
-      onRequestStop(doStop);
-      return;
-    }
+    if (onRequestStop) return onRequestStop(doStop);
     doStop();
   }
 
@@ -376,37 +461,284 @@ export function applyTaskFilters(
   return result;
 }
 
+/* ===================== Task Details Sheet ===================== */
+function TaskDetailsSheet({
+  open,
+  onOpenChange,
+  projectId,
+  projectTitle,
+  task,
+  members,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  projectId: string;
+  projectTitle?: string;
+  task: Task;
+  members: Employee[];
+}) {
+  const data = useMemo(
+    () => readAllParticipantsForTask(projectId, task.id),
+    [open, projectId, task.id]
+  );
+  const totalMsAll = data.reduce((s, p) => s + (p.totalMs || 0), 0);
+  const totalSessions = data.reduce((s, p) => s + (p.sessions?.length || 0), 0);
+  const byEmail: Record<string, Employee | undefined> = Object.fromEntries(
+    members.map((m) => [m.email.toLowerCase(), m])
+  );
+  const displayName = (email: string) =>
+    byEmail[email.toLowerCase()]?.name || email.split("@")[0];
+  const [sessionNoteViewer, setSessionNoteViewer] = useState<
+    | null
+    | {
+        member: string;
+        note: string;
+        start: number;
+        end: number;
+      }
+  >(null);
+  const handleSessionNoteOpen = (member: string, session: SessionLog) => {
+    const noteText = (session.note || "").trim();
+    if (!noteText) return;
+    setSessionNoteViewer({
+      member,
+      note: noteText,
+      start: session.start,
+      end: session.end,
+    });
+  };
+
+  return (
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-2xl flex flex-col p-0 [&>button:last-of-type]:hidden"
+      >
+        <div className="absolute left-2 top-2">
+          <SheetClose asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 rounded-full"
+              title="Close"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </SheetClose>
+        </div>
+
+        {/* Header */}
+        <div className="px-16 pr-6 pt-10">
+          <SheetHeader className="items-start text-left space-y-1">
+            <SheetTitle className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-800 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              {projectTitle ? (
+                <span className="flex items-center gap-1 text-xs sm:text-sm font-medium text-slate-500">
+                  <span>{projectTitle}</span>
+                  <span className="text-slate-400" aria-hidden>
+                    {"\u2022"}
+                  </span>
+                </span>
+              ) : null}
+              <span>{task.name}</span>
+            </SheetTitle>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <PriorityBadge p={task.priority} />
+              <StatusBadge s={task.status} />
+              {typeof task.estHours === "number" && (
+                <span className="text-xs text-slate-600">{task.estHours} Est. hrs</span>
+              )}
+            </div>
+            <p className="text-[13px] text-slate-600 leading-relaxed">
+              {task.subject}
+            </p>
+          </SheetHeader>
+        </div>
+
+        {/* Scroll area */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-16 pr-6 pb-6 space-y-5">
+          {/* KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl border bg-white px-4 py-3">
+              <div className="text-[11px] text-slate-500">Assignees (worked)</div>
+              <div className="text-2xl font-semibold tabular-nums">{data.length}</div>
+            </div>
+            <div className="rounded-xl border bg-white px-4 py-3">
+              <div className="text-[11px] text-slate-500">Sessions</div>
+              <div className="text-2xl font-semibold tabular-nums">{totalSessions}</div>
+            </div>
+            <div className="rounded-xl border bg-white px-4 py-3">
+              <div className="text-[11px] text-slate-500">Total time (h)</div>
+              <div className="text-2xl font-semibold tabular-nums">
+                {humanHours(totalMsAll)}
+              </div>
+            </div>
+          </div>
+
+          {/* People */}
+          <div>
+            <div className="mb-2 text-[11px] font-medium text-slate-500">People</div>
+            <div className="space-y-2">
+              {data.map((p) => {
+                const name = displayName(p.email);
+                const ini = initialsOf(name);
+                return (
+                  <div
+                    key={p.email}
+                    className="flex items-center justify-between rounded-lg border bg-white px-3.5 py-2.5"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Avatar className="h-7 w-7">
+                        <AvatarFallback className="text-[10px]">{ini}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm font-medium text-slate-800 truncate">
+                        {name}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                      {p.sessions.length} sessions • {humanHours(p.totalMs)} h
+                    </div>
+                  </div>
+                );
+              })}
+              {data.length === 0 && (
+                <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-slate-500">
+                  لا يوجد نشاط مسجل بعد على هذه التسك.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Session log */}
+          {data.some((p) => p.sessions.length) && (
+            <div>
+              <div className="mb-2 text-[11px] font-medium text-slate-500">
+                Session log
+              </div>
+
+              <div className="hidden md:grid grid-cols-12 bg-slate-50/60 px-3 py-2 rounded-t-lg border border-b-0">
+                <div className="col-span-4 text-[11px] font-medium text-slate-600">
+                  Member
+                </div>
+                <div className="col-span-3 text-[11px] font-medium text-slate-600">
+                  Start
+                </div>
+                <div className="col-span-3 text-[11px] font-medium text-slate-600">
+                  End
+                </div>
+                <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                  Note
+                </div>
+              </div>
+
+              <div className="border rounded-lg md:rounded-t-none overflow-hidden">
+                {data.flatMap((p) =>
+                  p.sessions.map((s, i) => {
+                    const noteText = (s.note || "").trim();
+                    const memberName = displayName(p.email);
+                    const canOpenNote = noteText.length > 0;
+
+                    return (
+                      <div
+                        key={`${p.email}_${i}`}
+                        className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-0 px-3 py-2 border-t first:border-t-0"
+                      >
+                        {canOpenNote ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSessionNoteOpen(memberName, s)}
+                            aria-label={`View full note from ${memberName}`}
+                            className="md:col-span-4 cursor-pointer text-left text-[13px] font-medium text-slate-800 truncate rounded-md transition hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
+                          >
+                            {memberName}
+                          </button>
+                        ) : (
+                          <div className="md:col-span-4 text-[13px] font-medium text-slate-800 truncate">
+                            {memberName}
+                          </div>
+                        )}
+                        <div className="md:col-span-3 text-[13px] tabular-nums">
+                          {new Date(s.start).toLocaleString()}
+                        </div>
+                        <div className="md:col-span-3 text-[13px] tabular-nums">
+                          {new Date(s.end).toLocaleString()}
+                        </div>
+                        <div
+                          className="md:col-span-2 text-[13px] text-slate-600 line-clamp-1 break-words"
+                          title={noteText || undefined}
+                        >
+                          {noteText || "-"}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <SheetFooter className="px-16 pr-6 pb-6" />
+      </SheetContent>
+    </Sheet>
+
+    <Dialog
+      open={!!sessionNoteViewer}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          setSessionNoteViewer(null);
+        }
+      }}
+    >
+      {sessionNoteViewer ? (
+        <DialogContent className="sm:max-w-2xl w-[min(92vw,760px)]">
+          <DialogHeader className="space-y-1 text-left">
+            <DialogTitle>{sessionNoteViewer.member}</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              {new Date(sessionNoteViewer.start).toLocaleString()} -{" "}
+              {new Date(sessionNoteViewer.end).toLocaleString()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words break-all text-[15px] leading-6 text-slate-700 rounded-md border bg-slate-50 p-4">
+            {sessionNoteViewer.note}
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  </>
+  );
+}
+
 /* ===================== Task Row (LIST view) ===================== */
 function TaskRow({
   projectId,
   projectTitle,
   t,
   email,
+  members,
 }: {
   projectId: string;
   projectTitle?: string;
   t: Task;
   email: string;
+  members: Employee[];
 }) {
-  // state للنوت والإيقاف
   const [pendingStop, setPendingStop] = useState<null | (() => void)>(null);
   const [note, setNote] = useState("");
   const [noteErr, setNoteErr] = useState(false);
+  const [open, setOpen] = useState(false);
   const noteKey = `${tKey(projectId, t.id, email)}${NOTE_SUFFIX}`;
 
-  // لما التايمر يطلب إيقاف، نُظهر الحقل بجانب OPEN
   function handleRequestStop(proceed: () => void) {
     setPendingStop(() => proceed);
     setNoteErr(false);
     setNote("");
   }
-
   function cancelNote() {
     setPendingStop(null);
     setNote("");
     setNoteErr(false);
   }
-
   function commitNote() {
     if (!note.trim()) {
       setNoteErr(true);
@@ -424,95 +756,139 @@ function TaskRow({
   }
 
   return (
-    <div className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm h-24">
-      {/* اليسار */}
-      <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
-          {projectTitle && (
-            <span className="text-[11px] font-medium text-slate-500">
-              {projectTitle}
+    <>
+      <div
+        className="group flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm h-24 cursor-pointer transition hover:bg-slate-50"
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => e.key === "Enter" && setOpen(true)}
+        role="button"
+        tabIndex={0}
+      >
+        {/* اليسار */}
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            {projectTitle && (
+              <span className="text-[11px] font-medium text-slate-500">
+                {projectTitle}
+              </span>
+            )}
+            <span className="text-[15px] font-semibold text-slate-800 truncate">
+              {t.name}
             </span>
-          )}
-          <span className="text-[15px] font-semibold text-slate-800 truncate">
-            {t.name}
-          </span>
-        </div>
-
-        <div className="mt-1 text-[13.5px] text-slate-600 line-clamp-2">
-          {t.subject}
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-          {typeof t.estHours === "number" && (
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              {t.estHours} Est. hrs
-            </span>
-          )}
-          <PriorityBadge p={t.priority} />
-          <StatusBadge s={t.status} />
-        </div>
-      </div>
-
-      {/* اليمين */}
-      <div className="flex items-center gap-2 shrink-0">
-        <Button size="sm" variant="outline" className="h-8 px-3 rounded-md gap-1">
-          <ToggleLeft className="h-4 w-4" />
-          OPEN
-        </Button>
-
-        {/* حقل النوت بجانب OPEN يظهر عند الضغط على OUT */}
-        {pendingStop && (
-          <div className="flex items-center gap-1">
-            <Input
-              autoFocus
-              placeholder="Write note to stop…"
-              value={note}
-              onChange={(e) => {
-                setNote(e.target.value);
-                if (noteErr && e.target.value.trim()) setNoteErr(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitNote();
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelNote();
-                }
-              }}
-              className={cn(
-                "h-8 w-56",
-                noteErr && "border-red-500 focus-visible:ring-red-500"
-              )}
-            />
-            <Button size="sm" className="h-8 px-2" onClick={commitNote} title="Log & stop">
-              <Check className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2"
-              onClick={cancelNote}
-              title="Cancel"
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
-        )}
 
-        <TaskTimer
-          projectId={projectId}
-          taskId={t.id}
-          email={email}
-          estHours={t.estHours}
-          onRequestStop={handleRequestStop}
-          onStopped={() => {
-            /* مكان لأي أكشن بعد الإيقاف */
-          }}
-        />
+          <div className="mt-1 text-[13.5px] text-slate-600 line-clamp-2">
+            {t.subject}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+            {typeof t.estHours === "number" && (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                {t.estHours} Est. hrs
+              </span>
+            )}
+            <PriorityBadge p={t.priority} />
+            <StatusBadge s={t.status} />
+          </div>
+        </div>
+
+        {/* اليمين */}
+        <div
+          className="flex items-center gap-2 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpen(true)}
+            className="
+              h-8 px-3 rounded-md gap-1
+              sm:opacity-0 sm:group-hover:opacity-100 sm:transition-opacity
+            "
+            title="Open task details"
+          >
+            <ToggleLeft className="h-4 w-4" />
+            OPEN
+          </Button>
+
+          {pendingStop && (
+            <div className="flex items-start gap-1">
+              <Textarea
+                autoFocus
+                placeholder="Write note to stop..."
+                value={note}
+                rows={3}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  if (noteErr && e.target.value.trim()) setNoteErr(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelNote();
+                  }
+                }}
+                className={cn(
+                  "w-60 min-h-[80px] resize-none",
+                  noteErr && "border-red-500 focus-visible:ring-red-500"
+                )}
+              />
+              <Button
+                size="sm"
+                className="h-8 px-2"
+                onClick={commitNote}
+                title="Log & stop"
+              >
+                <Check className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2"
+                onClick={cancelNote}
+                title="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
+          <TaskTimer
+            projectId={projectId}
+            taskId={t.id}
+            email={email}
+            estHours={t.estHours}
+            onRequestStop={handleRequestStop}
+            onStopped={({ startedAt, stoppedAt }) => {
+              let noteText: string | undefined = undefined;
+              try {
+                const last = JSON.parse(localStorage.getItem(noteKey) || "null");
+                if (last && Math.abs((last.at ?? 0) - stoppedAt) < 5000) {
+                  noteText = last.note;
+                }
+              } catch {}
+              appendSession(projectId, t.id, email, {
+                start: startedAt,
+                end: stoppedAt,
+                durationMs: stoppedAt - startedAt,
+                note: noteText,
+              });
+            }}
+          />
+        </div>
       </div>
-    </div>
+
+      {/* Sheet */}
+      <TaskDetailsSheet
+        open={open}
+        onOpenChange={setOpen}
+        projectId={projectId}
+        projectTitle={projectTitle}
+        task={t}
+        members={members}
+      />
+    </>
   );
 }
 
@@ -784,7 +1160,7 @@ export default function Admin() {
         </Card>
       </div>
 
-      {/* MAIN CARD — سكروول داخلي، رأس ثابت */}
+      {/* MAIN CARD */}
       {current && (
         <Card className="flex-1 flex flex-col min-h-[clamp(560px,80vh,1100px)]">
           <CardHeader className="pb-0 shrink-0">
@@ -813,6 +1189,7 @@ export default function Admin() {
                       projectTitle={parent?.title}
                       t={t}
                       email={viewer.email.toLowerCase()}
+                      members={parent?.members || []}
                     />
                   );
                 })}
@@ -833,15 +1210,54 @@ export default function Admin() {
 /* ===================== Dev sanity tests ===================== */
 if ((import.meta as any)?.env?.DEV) {
   const demoTasks: Task[] = [
-    { id: "1", name: "Auth", subject: "alpha", priority: "High", status: "todo", estHours: 5 },
-    { id: "2", name: "API", subject: "beta", priority: "Low", status: "done", estHours: 2 },
+    {
+      id: "1",
+      name: "Auth",
+      subject: "alpha",
+      priority: "High",
+      status: "todo",
+      estHours: 5,
+    },
+    {
+      id: "2",
+      name: "API",
+      subject: "beta",
+      priority: "Low",
+      status: "done",
+      estHours: 2,
+    },
   ];
   const STATUS_ALL = { todo: true, in_progress: true, done: true };
-  const none: TableFilters = { searchTask: "", searchSubject: "", priority: "", status: "", assignee: "" };
+  const none: TableFilters = {
+    searchTask: "",
+    searchSubject: "",
+    priority: "",
+    status: "",
+    assignee: "",
+  };
 
-  console.assert(applyTaskFilters(demoTasks, STATUS_ALL, none).length === 2, "filters: default returns all");
-  console.assert(applyTaskFilters(demoTasks, STATUS_ALL, { ...none, priority: "High" }).length === 1, "filters: priority");
-  console.assert(applyTaskFilters(demoTasks, STATUS_ALL, { ...none, status: "done" }).length === 1, "filters: status");
-  console.assert(applyTaskFilters(demoTasks, STATUS_ALL, { ...none, searchTask: "api" }).length === 1, "filters: task text");
-  console.assert(applyTaskFilters(demoTasks, STATUS_ALL, { ...none, searchSubject: "alp" }).length === 1, "filters: subject text");
+  console.assert(
+    applyTaskFilters(demoTasks, STATUS_ALL, none).length === 2,
+    "filters: default returns all"
+  );
+  console.assert(
+    applyTaskFilters(demoTasks, STATUS_ALL, { ...none, priority: "High" })
+      .length === 1,
+    "filters: priority"
+  );
+  console.assert(
+    applyTaskFilters(demoTasks, STATUS_ALL, { ...none, status: "done" })
+      .length === 1,
+    "filters: status"
+  );
+  console.assert(
+    applyTaskFilters(demoTasks, STATUS_ALL, { ...none, searchTask: "api" })
+      .length === 1,
+    "filters: task text"
+  );
+  console.assert(
+    applyTaskFilters(demoTasks, STATUS_ALL, { ...none, searchSubject: "alp" })
+      .length === 1,
+    "filters: subject text"
+  );
 }
