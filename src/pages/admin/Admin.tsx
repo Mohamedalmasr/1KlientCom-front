@@ -187,6 +187,35 @@ const fmt = (ms: number) => {
   return `${pad(h)}:${pad(m)}:${pad(ss)}`;
 };
 const to1 = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
+
+const SESSION_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+const formatSessionTime = (value: number) => {
+  if (!value || Number.isNaN(value)) return "-";
+  return SESSION_TIME_FORMATTER.format(new Date(value));
+};
+
+const formatSessionHours = (ms: number) => {
+  if (!ms || !Number.isFinite(ms)) return "0.00";
+  const hours = Math.max(ms, 0) / 3600000;
+  return hours.toFixed(2);
+};
+
+const normalizeSessionDuration = (
+  durationMs: number | undefined,
+  start: number,
+  end: number
+) => {
+  if (Number.isFinite(durationMs)) {
+    return Math.max(Number(durationMs), 0);
+  }
+  return Math.max(end - start, 0);
+};
+
 const tKey = (projectId: string, taskId: string, email: string) =>
   `${TIMER_PREFIX}${projectId}_${taskId}_${email}`;
 const sessionsKey = (projectId: string, taskId: string, email: string) =>
@@ -203,6 +232,7 @@ function appendSession(
     const list: SessionLog[] = JSON.parse(localStorage.getItem(k) || "[]");
     list.push(session);
     localStorage.setItem(k, JSON.stringify(list));
+    window.dispatchEvent(new Event("ok-timer-update"));
   } catch {}
 }
 
@@ -352,7 +382,7 @@ function TaskTimer({
           className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700"
           onClick={start}
         >
-          <Play className="mr-1 h-3.5 w-3.5" /> IN
+          <Play className="mr-1 h-3.5 w-3.5" /> Start
         </Button>
       ) : (
         <Button
@@ -361,7 +391,7 @@ function TaskTimer({
           className="h-8 px-3"
           onClick={stopGuarded}
         >
-          <Square className="mr-1 h-3.5 w-3.5" /> OUT
+          <Square className="mr-1 h-3.5 w-3.5" /> End
         </Button>
       )}
     </div>
@@ -495,6 +525,7 @@ function TaskDetailsSheet({
         note: string;
         start: number;
         end: number;
+        durationMs: number;
       }
   >(null);
   const handleSessionNoteOpen = (member: string, session: SessionLog) => {
@@ -505,6 +536,7 @@ function TaskDetailsSheet({
       note: noteText,
       start: session.start,
       end: session.end,
+      durationMs: session.durationMs,
     });
   };
 
@@ -620,11 +652,14 @@ function TaskDetailsSheet({
                 <div className="col-span-4 text-[11px] font-medium text-slate-600">
                   Member
                 </div>
-                <div className="col-span-3 text-[11px] font-medium text-slate-600">
+                <div className="col-span-2 text-[11px] font-medium text-slate-600">
                   Start
                 </div>
-                <div className="col-span-3 text-[11px] font-medium text-slate-600">
+                <div className="col-span-2 text-[11px] font-medium text-slate-600">
                   End
+                </div>
+                <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                  Total (hrs)
                 </div>
                 <div className="col-span-2 text-[11px] font-medium text-slate-600">
                   Note
@@ -637,6 +672,13 @@ function TaskDetailsSheet({
                     const noteText = (s.note || "").trim();
                     const memberName = displayName(p.email);
                     const canOpenNote = noteText.length > 0;
+                    const safeDurationMs = normalizeSessionDuration(
+                      s.durationMs,
+                      s.start,
+                      s.end
+                    );
+                    const durationHours = formatSessionHours(safeDurationMs);
+                    const durationDisplay = `${durationHours} h`;
 
                     return (
                       <div
@@ -657,11 +699,14 @@ function TaskDetailsSheet({
                             {memberName}
                           </div>
                         )}
-                        <div className="md:col-span-3 text-[13px] tabular-nums">
-                          {new Date(s.start).toLocaleString()}
+                        <div className="md:col-span-2 text-[13px] tabular-nums">
+                          {formatSessionTime(s.start)}
                         </div>
-                        <div className="md:col-span-3 text-[13px] tabular-nums">
-                          {new Date(s.end).toLocaleString()}
+                        <div className="md:col-span-2 text-[13px] tabular-nums">
+                          {formatSessionTime(s.end)}
+                        </div>
+                        <div className="md:col-span-2 text-[13px] tabular-nums" title={durationDisplay}>
+                          {durationDisplay}
                         </div>
                         <div
                           className="md:col-span-2 text-[13px] text-slate-600 line-clamp-1 break-words"
@@ -695,8 +740,17 @@ function TaskDetailsSheet({
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle>{sessionNoteViewer.member}</DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              {new Date(sessionNoteViewer.start).toLocaleString()} -{" "}
-              {new Date(sessionNoteViewer.end).toLocaleString()}
+              {new Date(sessionNoteViewer.start).toLocaleDateString()} |{" "}
+              {formatSessionTime(sessionNoteViewer.start)} -{" "}
+              {formatSessionTime(sessionNoteViewer.end)} |{" "}
+              {formatSessionHours(
+                normalizeSessionDuration(
+                  sessionNoteViewer.durationMs,
+                  sessionNoteViewer.start,
+                  sessionNoteViewer.end
+                )
+              )}{" "}
+              h
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words break-all text-[15px] leading-6 text-slate-700 rounded-md border bg-slate-50 p-4">
@@ -830,7 +884,7 @@ function TaskRow({
                   }
                 }}
                 className={cn(
-                  "w-60 min-h-[80px] resize-none",
+                  "w-60 min-h-[80px] max-h-[80px] overflow-y-auto resize-none [field-sizing:fixed]",
                   noteErr && "border-red-500 focus-visible:ring-red-500"
                 )}
               />

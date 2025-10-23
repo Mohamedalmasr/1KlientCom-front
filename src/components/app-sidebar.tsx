@@ -284,7 +284,7 @@ export function AppSidebar() {
                     <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/timer">
+                          <NavLink to="/admin/timer/my">
                             <TimerIcon className="size-4" />
                             <span className="text-[13px]">Timer</span>
                           </NavLink>

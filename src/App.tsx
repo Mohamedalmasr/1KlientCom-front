@@ -15,14 +15,11 @@ import AuthLayout from "./AuthLayout";
 import Admin from "./pages/admin/Admin";
 import Users from "./pages/admin/Users";
 import CreateUserPage from "./pages/admin/addUsers";
-import Timer from "./pages/admin/Timer";
 import Settings from "./pages/admin/Settings";
 import AllProjects from "./pages/admin/AllProjects";
 import AddProjects from "./pages/admin/AddProjects";
 import MyTimer from "./pages/admin/MyTimer";
 import TimerReport from "./pages/admin/TimerReport";
-import Tasks from "./pages/admin/Tasks";
-import AddTasks from "./pages/admin/AddTasks";
 import BlogPost from "./pages/BlogPost";
 import AdminBlogsList from "./pages/admin/AllBlogs";
 import AdminAddBlog from "./pages/admin/AddBlog";
@@ -86,13 +83,8 @@ const router = createBrowserRouter([
       { path: "projects/edit/:id", element: <EditProject /> },
 
       // Timer
-      { path: "timer", element: <Timer /> },
       { path: "timer/my", element: <MyTimer /> },
       { path: "timer/report", element: <TimerReport /> },
-
-      // Tasks
-      { path: "tasks", element: <Tasks /> },
-      { path: "add/tasks", element: <AddTasks /> },
 
       // Blogs
       { path: "blogs", element: <AdminBlogsList /> },
