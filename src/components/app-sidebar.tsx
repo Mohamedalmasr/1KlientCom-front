@@ -139,7 +139,6 @@ export function AppSidebar() {
     projects: false,
     users: false,
     timer: false,
-    tasks: false,
     settings: false,
     blogs: false,
   });
@@ -297,46 +296,6 @@ export function AppSidebar() {
                             <NavLink to="/admin/timer/report">
                               <BarChart2 className="size-4" />
                               <span className="text-[13px]">Report</span>
-                            </NavLink>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )}
-                    </SidebarMenu>
-                  </CollapsibleContent>
-                </Collapsible>
-              </SidebarMenuItem>
-
-              {/* Tasks */}
-              <SidebarMenuItem>
-                <Collapsible
-                  open={open.tasks}
-                  onOpenChange={(v) => setOpen((o) => ({ ...o, tasks: v }))}
-                >
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="h-10 rounded-xl hover:bg-gray-100/70 data-[state=open]:bg-gray-100/90 flex items-center justify-between group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center">
-                      <span className="flex items-center gap-2">
-                        <ListTodo className="size-5" />
-                        <span className="text-[14px] group-data-[collapsible=icon]:hidden">Tasks</span>
-                      </span>
-                      <ChevronDown className={`size-4 transition-transform ${open.tasks ? "rotate-180" : ""} group-data-[collapsible=icon]:hidden`} />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenu className="mt-1 border-l pl-5 group-data-[collapsible=icon]:hidden">
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                          <NavLink to="/admin/tasks">
-                            <ListTodo className="size-4" />
-                            <span className="text-[13px]">Tasks</span>
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      {isAdmin && (
-                        <SidebarMenuItem>
-                          <SidebarMenuButton asChild className="h-9 rounded-lg text-sm hover:bg-gray-100/60">
-                            <NavLink to="/admin/add/tasks">
-                              <Plus className="size-4" />
-                              <span className="text-[13px]">Add Tasks</span>
                             </NavLink>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
