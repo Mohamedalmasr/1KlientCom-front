@@ -19,7 +19,6 @@ import {
   Square,
   RefreshCw,
   X,
-  Check,
   ToggleLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -286,7 +285,6 @@ function TaskTimer({
   projectId,
   taskId,
   email,
-  estHours,
   onRequestStop,
   onStopped,
 }: {
@@ -329,8 +327,6 @@ function TaskTimer({
     () => (running && startedAt ? total + (Date.now() - startedAt) : total),
     [running, startedAt, total, tick]
   );
-  const elapsedHours = elapsed / 3600000;
-
   function persist(next: {
     running: boolean;
     totalMs: number;
@@ -371,11 +367,6 @@ function TaskTimer({
         <Clock className={cn("h-3.5 w-3.5", running && "animate-pulse")} />
         <span className="tabular-nums">{fmt(elapsed)}</span>
       </div>
-      {typeof estHours === "number" && (
-        <div className="text-xs text-slate-600 tabular-nums">
-          {to1(elapsedHours)} / {estHours} h
-        </div>
-      )}
       {!running ? (
         <Button
           size="sm"
@@ -462,6 +453,39 @@ const MiniUserChip = ({ name, email }: { name: string; email: string }) => {
     </div>
   );
 };
+
+/* ========= TinyStat helper ========= */
+function TinyStat({
+  value,
+  label,
+  tone = "slate",
+  className,
+}: {
+  value: string | number;
+  label: string;
+  tone?: "slate" | "blue" | "emerald";
+  className?: string;
+}) {
+  const toneMap: Record<string, string> = {
+    slate: "border-slate-200 text-slate-600 bg-white",
+    blue: "border-blue-200 text-blue-700 bg-blue-50/60",
+    emerald: "border-emerald-200 text-emerald-700 bg-emerald-50/60",
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11.5px] font-medium tabular-nums",
+        toneMap[tone],
+        className
+      )}
+      title={String(label)}
+    >
+      <Clock className="h-3.5 w-3.5" />
+      <span>{value}</span>
+      <span className="opacity-80">{label}</span>
+    </span>
+  );
+}
 
 /* ===================== Filters util ===================== */
 export function applyTaskFilters(
@@ -770,28 +794,33 @@ function TaskRow({
   t,
   email,
   members,
+  projectTasks,
 }: {
   projectId: string;
   projectTitle?: string;
   t: Task;
   email: string;
   members: Employee[];
+  projectTasks: Task[];
 }) {
   const [pendingStop, setPendingStop] = useState<null | (() => void)>(null);
   const [note, setNote] = useState("");
   const [noteErr, setNoteErr] = useState(false);
   const [open, setOpen] = useState(false);
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const noteKey = `${tKey(projectId, t.id, email)}${NOTE_SUFFIX}`;
 
   function handleRequestStop(proceed: () => void) {
     setPendingStop(() => proceed);
     setNoteErr(false);
     setNote("");
+    setNoteDialogOpen(true);
   }
   function cancelNote() {
     setPendingStop(null);
     setNote("");
     setNoteErr(false);
+    setNoteDialogOpen(false);
   }
   function commitNote() {
     if (!note.trim()) {
@@ -809,6 +838,37 @@ function TaskRow({
     doStop?.();
   }
 
+  /* ===== Project totals (Spent / Est.) for display ===== */
+  const [ver, setVer] = useState(0);
+  useEffect(() => {
+    const onUpd = () => setVer((v) => v + 1);
+    window.addEventListener("ok-timer-update", onUpd);
+    return () => window.removeEventListener("ok-timer-update", onUpd);
+  }, []);
+
+  const projectEstHours = useMemo(
+    () => (projectTasks || []).reduce((sum, task) => sum + (task.estHours || 0), 0),
+    [projectTasks]
+  );
+
+  const projectSpentMs = useMemo(() => {
+    if (!projectTasks?.length) return 0;
+    return projectTasks.reduce((acc, task) => {
+      const participants = readAllParticipantsForTask(projectId, task.id);
+      const taskMs = participants.reduce((s, p) => s + (p.totalMs || 0), 0);
+      return acc + taskMs;
+    }, 0);
+  }, [projectId, projectTasks, ver]);
+
+  const projectSpentH = (projectSpentMs / 3600000).toFixed(1);
+  const projectEstH = to1(projectEstHours);
+
+  const taskSpentMs = useMemo(() => {
+    const participants = readAllParticipantsForTask(projectId, t.id);
+    return participants.reduce((sum, p) => sum + (p.totalMs || 0), 0);
+  }, [projectId, t.id, ver]);
+  const taskSpentH = to1(taskSpentMs / 3600000);
+
   return (
     <>
       <div
@@ -820,30 +880,50 @@ function TaskRow({
       >
         {/* اليسار */}
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-            {projectTitle && (
-              <span className="text-[11px] font-medium text-slate-500">
-                {projectTitle}
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] sm:items-start">
+            <div className="min-w-0">
+              {projectTitle && (
+                <>
+                  <span className="text-[11px] font-medium text-slate-500">
+                    {projectTitle}
+                  </span>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <TinyStat
+                      value={projectSpentH}
+                      label="Spent hrs"
+                      tone="blue"
+                    />
+                    <TinyStat
+                      value={projectEstH}
+                      label="Est. hrs"
+                      tone="slate"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col items-start gap-1 text-left">
+              <span className="text-[15px] font-semibold text-slate-800 truncate">
+                {t.name}
               </span>
-            )}
-            <span className="text-[15px] font-semibold text-slate-800 truncate">
-              {t.name}
-            </span>
-          </div>
-
-          <div className="mt-1 text-[13.5px] text-slate-600 line-clamp-2">
-            {t.subject}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-            {typeof t.estHours === "number" && (
-              <span className="inline-flex items-center gap-1">
-                <Clock className="h-4 w-4" />
-                {t.estHours} Est. hrs
-              </span>
-            )}
-            <PriorityBadge p={t.priority} />
-            <StatusBadge s={t.status} />
+              <p className="mt-1 w-full text-[13.5px] text-slate-600 leading-relaxed line-clamp-2">
+                {t.subject}
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  {taskSpentH} Spent hrs
+                </span>
+                {typeof t.estHours === "number" && (
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="h-4 w-4" />
+                    {t.estHours} Est. hrs
+                  </span>
+                )}
+                <PriorityBadge p={t.priority} />
+                <StatusBadge s={t.status} />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -865,48 +945,6 @@ function TaskRow({
             <ToggleLeft className="h-4 w-4" />
             OPEN
           </Button>
-
-          {pendingStop && (
-            <div className="flex items-start gap-1">
-              <Textarea
-                autoFocus
-                placeholder="Write note to stop..."
-                value={note}
-                rows={3}
-                onChange={(e) => {
-                  setNote(e.target.value);
-                  if (noteErr && e.target.value.trim()) setNoteErr(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    cancelNote();
-                  }
-                }}
-                className={cn(
-                  "w-60 min-h-[80px] max-h-[80px] overflow-y-auto resize-none [field-sizing:fixed]",
-                  noteErr && "border-red-500 focus-visible:ring-red-500"
-                )}
-              />
-              <Button
-                size="sm"
-                className="h-8 px-2"
-                onClick={commitNote}
-                title="Log & stop"
-              >
-                <Check className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-2"
-                onClick={cancelNote}
-                title="Cancel"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
 
           <TaskTimer
             projectId={projectId}
@@ -942,6 +980,47 @@ function TaskRow({
         task={t}
         members={members}
       />
+
+      <Dialog
+        open={noteDialogOpen}
+        onOpenChange={(next) => {
+          if (!next) cancelNote();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Stop timer</DialogTitle>
+            <DialogDescription>
+              Add a quick note before stopping this session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              autoFocus
+              placeholder="Write note to stop..."
+              value={note}
+              rows={4}
+              onChange={(e) => {
+                setNote(e.target.value);
+                if (noteErr && e.target.value.trim()) setNoteErr(false);
+              }}
+              className={cn(
+                "resize-none",
+                noteErr && "border-red-500 focus-visible:ring-red-500"
+              )}
+            />
+            {noteErr && (
+              <p className="text-xs text-red-500">Please add a note before saving.</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={cancelNote}>
+                Cancel
+              </Button>
+              <Button onClick={commitNote}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -1244,6 +1323,7 @@ export default function Admin() {
                       t={t}
                       email={viewer.email.toLowerCase()}
                       members={parent?.members || []}
+                      projectTasks={parent?.tasks || []}
                     />
                   );
                 })}
