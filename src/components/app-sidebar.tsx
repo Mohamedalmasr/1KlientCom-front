@@ -27,7 +27,6 @@ import {
   Users as UsersIcon,
   Timer as TimerIcon,
   Settings as SettingsIcon,
-  ListTodo,
   ChevronDown,
   LogOut,
   UserPlus,

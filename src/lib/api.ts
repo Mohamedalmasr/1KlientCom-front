@@ -674,7 +674,7 @@ export async function deleteTask(projectId: number, taskId: number) {
   return request<void>(`/projects/${projectId}/tasks/${taskId}`, { method: "DELETE" });
 }
 
-/* ---------- Task Assignees (مسك تسك) ---------- */
+/* ---------- Task Assignees  ---------- */
 export async function addTaskAssignees(projectId: number, taskId: number, users: number[], role?: string) {
   return request<{ added: number; alreadyAssigned: number }>(
     `/projects/${projectId}/tasks/${taskId}/assignees`,
@@ -848,3 +848,46 @@ export async function claimTaskByEmail(
   return claimTask(projectId, taskId, user.id, role, exclusive);
 }
   
+
+
+
+
+export type SessionRow = {
+  sessionAID: number;
+  taskAID: number;
+  usersAID: number;
+  startTime: string;
+  endTime: string;
+  durationMs: string;
+  note?: string | null;
+  createdAt: string;
+};
+
+export type CreateSessionPayload = {
+  taskAID: number;
+  usersAID: number;
+  startedAt: string;
+  stoppedAt: string;
+  durationMs?: number;
+  note?: string;
+};
+
+export async function createSession(
+  payload: CreateSessionPayload
+): Promise<SessionRow> {
+  return request<SessionRow>("/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listMySessions(): Promise<SessionRow[]> {
+  const raw = await request<any>("/sessions/my", {
+    method: "GET",
+  });
+
+  if (Array.isArray(raw)) return raw as SessionRow[];
+  if (Array.isArray(raw?.items)) return raw.items as SessionRow[];
+
+  return [];
+}

@@ -3,6 +3,7 @@ import { CalendarDays, Clock3 } from "lucide-react";
 
 import { AUTH_KEY } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { listMySessions } from "@/lib/api";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -315,19 +316,66 @@ function MyTimer() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const load = () => {
+    const load = async () => {
       const nextUser = resolveCurrentUser();
       setUser(nextUser);
-      if (nextUser) {
-        setSessions(loadSessionsForEmail(nextUser.email));
-      } else {
+
+      if (!nextUser) {
         setSessions([]);
+        setHydrated(true);
+        return;
       }
+
+      // fallback من الـ localStorage لو الـ API مش متاح أو فاضي
+      const localSessions = loadSessionsForEmail(nextUser.email);
+
+      try {
+        const apiRows = await listMySessions();
+
+        const fromApi: SessionEntry[] = apiRows
+          .map((row: any) => {
+            const start = Date.parse(row.startTime);
+            const end = Date.parse(row.endTime);
+            if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+
+            const duration = normalizeDuration(
+              row.durationMs,
+              start,
+              end
+            );
+            if (duration <= 0) return null;
+
+            return {
+              projectId:
+                row.projectAID != null
+                  ? String(row.projectAID)
+                  : "unknown",
+              taskId: String(row.taskAID ?? ""),
+              start,
+              end,
+              durationMs: duration,
+            } as SessionEntry;
+          })
+          .filter(Boolean) as SessionEntry[];
+
+        if (fromApi.length > 0) {
+          setSessions(fromApi);
+        } else {
+          setSessions(localSessions);
+        }
+      } catch {
+        setSessions(localSessions);
+      }
+
       setHydrated(true);
     };
 
-    const handleStorage = () => load();
-    const handleFocus = () => load();
+    const handleStorage = () => {
+      load();
+    };
+    const handleFocus = () => {
+      load();
+    };
 
     load();
     window.addEventListener("storage", handleStorage);

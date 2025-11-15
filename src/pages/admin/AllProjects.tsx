@@ -1,7 +1,7 @@
 // src/pages/admin/AllProjects.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, Pencil, ExternalLink, Trash2 } from "lucide-react";
+import { CalendarDays, Pencil, ExternalLink, Trash2, Loader2 } from "lucide-react"; // ← زودنا Loader2
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -88,12 +88,16 @@ function Members({ members }: { members: Project["members"] }) {
           {m.avatar ? (
             <AvatarImage src={m.avatar} alt={m.name} />
           ) : (
-            <AvatarFallback className="text-[11px]">{m.name}</AvatarFallback>
+            <AvatarFallback className="text-[11px]">
+              {m.name}
+            </AvatarFallback>
           )}
         </Avatar>
       ))}
       {members.length > 4 && (
-        <div className="ml-2 text-xs text-slate-500">+{members.length - 4}</div>
+        <div className="ml-2 text-xs text-slate-500">
+          +{members.length - 4}
+        </div>
       )}
     </div>
   );
@@ -149,8 +153,6 @@ export default function AllProjects() {
         let offset = 0;
         const acc: Project[] = [];
 
-        // اجمع كل المشاريع على صفحات لحد ما تخلص
-        // eslint-disable-next-line no-constant-condition
         while (true) {
           const res = await listProjects({ limit: pageSize, offset });
           const chunk = (res.items ?? []).map(toProject);
@@ -185,17 +187,14 @@ export default function AllProjects() {
     setOpenDelete(false);
     setPendingId(null);
 
-    await toast.promise(
-      deleteProject(id),
-      {
-        loading: "Deleting project…",
-        success: () => {
-          setData((cur) => cur.filter((p) => p.id !== id));
-          return "Project deleted successfully";
-        },
-        error: (e) => (e?.message as string) || "Failed to delete project",
-      }
-    );
+    await toast.promise(deleteProject(id), {
+      loading: "Deleting project…",
+      success: () => {
+        setData((cur) => cur.filter((p) => p.id !== id));
+        return "Project deleted successfully";
+      },
+      error: (e) => (e?.message as string) || "Failed to delete project",
+    });
   }
   /* ================================== */
 
@@ -210,103 +209,119 @@ export default function AllProjects() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {data.map((p) => (
-          <Card
-            key={p.id}
-            className="rounded-2xl border-slate-200 bg-white shadow-sm transition hover:shadow-md"
-          >
-            <CardContent className="p-4">
-              {/* Title row */}
-              <div className="mb-2 flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[17px] font-semibold text-slate-800">
-                    {p.title}
-                  </h3>
-                  {p.canEdit && (
-                    <span
-                      role="button"
-                      title="Edit"
-                      className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      onClick={() => navigate(`/admin/projects/${p.id}/edit`)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </span>
-                  )}
-                  {/* Delete */}
-                  {p.canEdit && (
-                    <span
-                      role="button"
-                      title="Delete"
-                      className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      onClick={() => askDelete(p.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </span>
-                  )}
-                </div>
-
-                <StatusBadge s={p.status} />
-              </div>
-
-              {/* Summary */}
-              <p className="mb-4 line-clamp-3 text-[13.5px] leading-5 text-slate-600">
-                {p.summary}
-              </p>
-
-              {/* Footer row */}
-              <div className="flex items-end justify-between">
-                <div className="flex flex-col gap-2">
-                  {/* Date */}
-                  <div className="flex items-center gap-2 text-[13px] font-semibold">
-                    <CalendarDays
-                      className={cn(
-                        "h-4 w-4",
-                        p.status === "offtrack" && "text-red-600",
-                        p.status === "on-track" && "text-emerald-600",
-                        p.status === "completed" && "text-blue-600"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "tracking-wide",
-                        p.status === "offtrack" && "text-red-600",
-                        p.status === "on-track" && "text-emerald-600",
-                        p.status === "completed" && "text-blue-600"
-                      )}
-                    >
-                      {formatDate(p.due)}
-                    </span>
+      {/* ======= Loading / Empty / Data states ======= */}
+      {!loaded ? (
+        // حالة الـ Loading لحد ما نخلص جلب الداتا من السيرفر
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          <p className="mt-3 text-sm text-slate-500">
+            Loading projects…
+          </p>
+        </div>
+      ) : data.length === 0 ? (
+        // لو مفيش ولا مشروع
+        <div className="py-16 text-center text-sm text-slate-500">
+          No projects found.
+        </div>
+      ) : (
+        // عرض المشاريع لما الداتا تجهز
+        <div className="grid gap-4 md:grid-cols-2">
+          {data.map((p) => (
+            <Card
+              key={p.id}
+              className="rounded-2xl border-slate-200 bg-white shadow-sm transition hover:shadow-md"
+            >
+              <CardContent className="p-4">
+                {/* Title row */}
+                <div className="mb-2 flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[17px] font-semibold text-slate-800">
+                      {p.title}
+                    </h3>
+                    {p.canEdit && (
+                      <span
+                        role="button"
+                        title="Edit"
+                        className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        onClick={() =>
+                          navigate(`/admin/projects/${p.id}/edit`)
+                        }
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </span>
+                    )}
+                    {/* Delete */}
+                    {p.canEdit && (
+                      <span
+                        role="button"
+                        title="Delete"
+                        className="inline-flex cursor-pointer items-center rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        onClick={() => askDelete(p.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </span>
+                    )}
                   </div>
 
-                  {/* Members */}
-                  <Members members={p.members} />
+                  <StatusBadge s={p.status} />
                 </div>
 
-                {/* Issues */}
-                <div className="text-right text-[12.5px] leading-5 text-slate-500">
-                  <div className="text-slate-800">{p.issues}</div>
-                  <div>Issues</div>
+                {/* Summary */}
+                <p className="mb-4 line-clamp-3 text-[13.5px] leading-5 text-slate-600">
+                  {p.summary}
+                </p>
+
+                {/* Footer row */}
+                <div className="flex items-end justify-between">
+                  <div className="flex flex-col gap-2">
+                    {/* Date */}
+                    <div className="flex items-center gap-2 text-[13px] font-semibold">
+                      <CalendarDays
+                        className={cn(
+                          "h-4 w-4",
+                          p.status === "offtrack" && "text-red-600",
+                          p.status === "on-track" && "text-emerald-600",
+                          p.status === "completed" && "text-blue-600"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "tracking-wide",
+                          p.status === "offtrack" && "text-red-600",
+                          p.status === "on-track" && "text-emerald-600",
+                          p.status === "completed" && "text-blue-600"
+                        )}
+                      >
+                        {formatDate(p.due)}
+                      </span>
+                    </div>
+
+                    {/* Members */}
+                    <Members members={p.members} />
+                  </div>
+
+                  {/* Issues */}
+                  <div className="text-right text-[12.5px] leading-5 text-slate-500">
+                    <div className="text-slate-800">{p.issues}</div>
+                    <div>Issues</div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Optional open link */}
-              {p.href && (
-                <a
-                  href={p.href}
-                  className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-800"
-                >
-                  Open
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* No pagination UI */}
-      {!loaded && <div className="sr-only">Loading…</div>}
+                {/* Optional open link */}
+                {p.href && (
+                  <a
+                    href={p.href}
+                    className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-800"
+                  >
+                    Open
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* ===== Delete confirm dialog (A1) ===== */}
       <AlertDialog open={openDelete} onOpenChange={setOpenDelete}>
@@ -321,7 +336,9 @@ export default function AllProjects() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-lg">
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="rounded-lg bg-[#1f4ed8] text-white hover:bg-[#1e3ed8]"

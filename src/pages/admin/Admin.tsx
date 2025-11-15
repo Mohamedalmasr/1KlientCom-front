@@ -1,5 +1,5 @@
 // src/pages/admin/Admin.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -13,15 +13,14 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Clock,
-  Play,
-  Square,
-  RefreshCw,
-  X,
-  ToggleLeft,
-} from "lucide-react";
+import { Clock, Play, Square, RefreshCw, X, ToggleLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getProjectDetail,
+  listAllProjects,
+  type ProjectDetail,
+  updateTask, // ← الجديد: هنستخدمه عشان نحدّث status في الباك
+} from "@/lib/api";
 
 import {
   Sheet,
@@ -42,9 +41,13 @@ import {
 /* ===================== Types ===================== */
 type Priority = "High" | "Medium" | "Low";
 type TaskStatus = "todo" | "in_progress" | "done";
+
 type Employee = { id: string; name: string; email: string };
+
 type Task = {
-  id: string;
+  id: string;              // ID المستخدم في الفرونت/localStorage
+  taskAID?: number;        // ← ID الحقيقي من الداتابيز (TaskAID)
+  projectAID?: number;     // ← ProjectAID اللي التسك تابع له (اختياري لو حبّيت تستخدمه)
   name: string;
   subject: string;
   priority: Priority;
@@ -52,8 +55,10 @@ type Task = {
   estHours?: number;
   assignedTo?: string[];
 };
+
 type Project = {
-  id: string;
+  id: string;             // ID المستخدم في الفرونت
+  projectAID?: number;    // ← ProjectAID الحقيقي من الداتابيز
   title: string;
   members: Employee[];
   tasks: Task[];
@@ -66,75 +71,6 @@ type TableFilters = {
   status: "" | TaskStatus;
   assignee: "" | "unassigned" | string;
 };
-
-/* ===================== Demo data ===================== */
-const PEOPLE: Employee[] = [
-  { id: "alex", name: "Alex Johnson", email: "alex.j@example.com" },
-  { id: "maria", name: "Maria Garcia", email: "maria.g@example.com" },
-  { id: "james", name: "James Smith", email: "james.s@example.com" },
-  { id: "emily", name: "Emily Jones", email: "emily.j@example.com" },
-];
-
-const BASE_PROJECTS: Project[] = [
-  {
-    id: "p-ec",
-    title: "E-commerce Platform",
-    members: [PEOPLE[0], PEOPLE[1], PEOPLE[2]],
-    tasks: [
-      {
-        id: "t-auth",
-        name: "User Authentication Flow",
-        subject: "Login, registration, password reset",
-        priority: "High",
-        estHours: 16,
-        status: "todo",
-        assignedTo: ["alex.j@example.com"],
-      },
-      {
-        id: "t-api",
-        name: "Products API",
-        subject: "CRUD endpoints with pagination",
-        priority: "High",
-        estHours: 40,
-        status: "in_progress",
-        assignedTo: ["maria.g@example.com"],
-      },
-      {
-        id: "t-ui",
-        name: "Catalog UI",
-        subject: "Listing, filters, and search",
-        priority: "Medium",
-        estHours: 12,
-        status: "todo",
-      },
-    ],
-  },
-  {
-    id: "p-mobile",
-    title: "Mobile Banking App",
-    members: [PEOPLE[1], PEOPLE[3]],
-    tasks: [
-      {
-        id: "t-kyc",
-        name: "KYC Screen",
-        subject: "Capture documents & selfie flow",
-        priority: "High",
-        estHours: 24,
-        status: "todo",
-        assignedTo: ["maria.g@example.com"],
-      },
-      {
-        id: "t-pay",
-        name: "Payments SDK Integration",
-        subject: "Card + Apple/Google Pay",
-        priority: "Medium",
-        estHours: 20,
-        status: "done",
-        assignedTo: ["emily.j@example.com"],
-      },
-    ],
-  },
-];
 
 /* ===================== Viewer ===================== */
 function getCurrentUserFromStorage(): Employee | null {
@@ -163,7 +99,159 @@ function getCurrentUserFromStorage(): Employee | null {
   } catch {}
   return null;
 }
-const DEFAULT_USER: Employee = PEOPLE[1];
+const DEFAULT_USER: Employee = {
+  id: "default-viewer",
+  name: "Team Member",
+  email: "member@example.com",
+};
+
+/* ===================== Project helpers ===================== */
+function normalizeEmail(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function mapPriorityValue(value?: number | string | null): Priority {
+  if (typeof value === "string" && value) {
+    const normalized = value.toLowerCase();
+    if (normalized.includes("high")) return "High";
+    if (normalized.includes("low")) return "Low";
+    return "Medium";
+  }
+  if (typeof value === "number") {
+    if (value >= 3) return "High";
+    if (value <= 1) return "Low";
+  }
+  return "Medium";
+}
+
+function mapTaskStatusValue(value?: number | null): TaskStatus {
+  if (typeof value !== "number") return "todo";
+  if (value >= 2) return "done";
+  if (value === 1) return "in_progress";
+  return "todo";
+}
+
+// ← الجديد: ماب من string → رقم عشان الباك
+function mapTaskStatusToBackend(s: TaskStatus): number {
+  switch (s) {
+    case "todo":
+      return 0;
+    case "in_progress":
+      return 1;
+    case "done":
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+function pickMemberName(
+  source: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  },
+  fallback: string
+) {
+  const composed = [source.firstName, source.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (composed) return composed;
+  const mail = (source.email ?? "").trim();
+  if (mail) {
+    const local = mail.split("@")[0];
+    if (local) return local;
+  }
+  return fallback;
+}
+
+function buildProjectFromDetail(detail: ProjectDetail): Project {
+  const memberMap = new Map<string, Employee>();
+  detail.members.forEach((member) => {
+    const rawEmail = (member.user?.email ?? "").trim();
+    const normalizedEmail =
+      normalizeEmail(rawEmail) ||
+      `member-${member.usersAID ?? detail.project.projectAID}`;
+    if (!memberMap.has(normalizedEmail)) {
+      memberMap.set(normalizedEmail, {
+        id: String(member.usersAID ?? normalizedEmail),
+        name: pickMemberName(
+          {
+            firstName: member.user?.firstName,
+            lastName: member.user?.lastName,
+            email: rawEmail || normalizedEmail,
+          },
+          `Member ${member.usersAID ?? normalizedEmail}`
+        ),
+        email: rawEmail || normalizedEmail,
+      });
+    }
+  });
+  const members = Array.from(memberMap.values());
+  const defaultAssignees = members
+    .map((m) => normalizeEmail(m.email))
+    .filter(Boolean);
+
+  const tasks: Task[] = detail.tasks.map((task) => {
+    const fallbackId = `${detail.project.projectAID ?? "project"}-${
+      task.taskCode ?? task.name ?? Date.now()
+    }`;
+    const id = String(task.taskAID ?? task.taskCode ?? fallbackId);
+    const estHours =
+      typeof task.hoursEst === "number"
+        ? task.hoursEst
+        : typeof (task as any).estimatedHours === "number"
+        ? (task as any).estimatedHours
+        : undefined;
+    const assignedFromApi =
+      Array.isArray((task as any).assignees) && (task as any).assignees.length
+        ? (task as any).assignees
+            .map((assignee: any) =>
+              normalizeEmail(assignee?.email ?? assignee?.user?.email ?? "")
+            )
+            .filter(Boolean)
+        : undefined;
+
+    return {
+      id,
+      taskAID: task.taskAID,                  // ← نخزّن TaskAID الحقيقي
+      projectAID: detail.project.projectAID,  // ← نربط التسك بالمشروع
+      name: task.name || task.taskCode || "Untitled task",
+      subject: task.taskDesc ?? "",
+      priority: mapPriorityValue(
+        (task as any).priority ?? task.taskPriority
+      ),
+      status: mapTaskStatusValue(task.taskSts),
+      estHours: typeof estHours === "number" ? estHours : undefined,
+      assignedTo:
+        assignedFromApi && assignedFromApi.length
+          ? assignedFromApi
+          : defaultAssignees.length
+          ? defaultAssignees
+          : undefined,
+    };
+  });
+
+  const projectLabel =
+    detail.project.name ||
+    detail.project.projectCode ||
+    `Project ${detail.project.projectAID ?? ""}`.trim() ||
+    "Project";
+
+  return {
+    id: String(
+      detail.project.projectAID ??
+        detail.project.projectCode ??
+        detail.project.name ??
+        `project-${Date.now()}`
+    ),
+    projectAID: detail.project.projectAID, // ← نخزّن ProjectAID الحقيقي
+    title: projectLabel,
+    members,
+    tasks,
+  };
+}
 
 /* ===================== Timer helpers ===================== */
 const TIMER_PREFIX = "ok_time_";
@@ -245,7 +333,6 @@ function readAllParticipantsForTask(projectId: string, taskId: string) {
     const prefix = `${TIMER_PREFIX}${projectId}_${taskId}_`;
     if (!key.startsWith(prefix)) continue;
 
-    // تجاهل مفاتيح النوت
     if (key.endsWith(NOTE_SUFFIX)) continue;
 
     if (!key.endsWith(SESSIONS_SUFFIX)) {
@@ -260,10 +347,7 @@ function readAllParticipantsForTask(projectId: string, taskId: string) {
       continue;
     }
 
-    const email = key.slice(
-      prefix.length,
-      key.length - SESSIONS_SUFFIX.length
-    );
+    const email = key.slice(prefix.length, key.length - SESSIONS_SUFFIX.length);
     if (!participants[email]) {
       participants[email] = { email, totalMs: 0, sessions: [] };
     }
@@ -286,6 +370,7 @@ function TaskTimer({
   taskId,
   email,
   onRequestStop,
+  onStarted,
   onStopped,
 }: {
   projectId: string;
@@ -293,6 +378,7 @@ function TaskTimer({
   email: string;
   estHours?: number;
   onRequestStop?: (proceed: () => void) => void;
+  onStarted?: () => void;
   onStopped?: (info: {
     totalMs: number;
     startedAt: number;
@@ -343,6 +429,7 @@ function TaskTimer({
     setRunning(true);
     setStartedAt(now);
     persist({ running: true, totalMs: total, startedAt: now });
+    onStarted?.();
   }
 
   const doStop = () => {
@@ -542,16 +629,13 @@ function TaskDetailsSheet({
   );
   const displayName = (email: string) =>
     byEmail[email.toLowerCase()]?.name || email.split("@")[0];
-  const [sessionNoteViewer, setSessionNoteViewer] = useState<
-    | null
-    | {
-        member: string;
-        note: string;
-        start: number;
-        end: number;
-        durationMs: number;
-      }
-  >(null);
+  const [sessionNoteViewer, setSessionNoteViewer] = useState<null | {
+    member: string;
+    note: string;
+    start: number;
+    end: number;
+    durationMs: number;
+  }>(null);
   const handleSessionNoteOpen = (member: string, session: SessionLog) => {
     const noteText = (session.note || "").trim();
     if (!noteText) return;
@@ -567,223 +651,235 @@ function TaskDetailsSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-2xl flex flex-col p-0 [&>button:last-of-type]:hidden"
-      >
-        <div className="absolute left-2 top-2">
-          <SheetClose asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-9 w-9 rounded-full"
-              title="Close"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-          </SheetClose>
-        </div>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-2xl flex flex-col p-0 [&>button:last-of-type]:hidden"
+        >
+          <div className="absolute left-2 top-2">
+            <SheetClose asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-9 w-9 rounded-full"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </SheetClose>
+          </div>
 
-        {/* Header */}
-        <div className="px-16 pr-6 pt-10">
-          <SheetHeader className="items-start text-left space-y-1">
-            <SheetTitle className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-800 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              {projectTitle ? (
-                <span className="flex items-center gap-1 text-xs sm:text-sm font-medium text-slate-500">
-                  <span>{projectTitle}</span>
-                  <span className="text-slate-400" aria-hidden>
-                    {"\u2022"}
+          <div className="px-16 pr-6 pt-10">
+            <SheetHeader className="items-start text-left space-y-1">
+              <SheetTitle className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-800 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                {projectTitle ? (
+                  <span className="flex items-center gap-1 text-xs sm:text-sm font-medium text-slate-500">
+                    <span>{projectTitle}</span>
+                    <span className="text-slate-400" aria-hidden>
+                      {"\u2022"}
+                    </span>
                   </span>
-                </span>
-              ) : null}
-              <span>{task.name}</span>
-            </SheetTitle>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <PriorityBadge p={task.priority} />
-              <StatusBadge s={task.status} />
-              {typeof task.estHours === "number" && (
-                <span className="text-xs text-slate-600">{task.estHours} Est. hrs</span>
-              )}
-            </div>
-            <p className="text-[13px] text-slate-600 leading-relaxed">
-              {task.subject}
-            </p>
-          </SheetHeader>
-        </div>
+                ) : null}
+                <span>{task.name}</span>
+              </SheetTitle>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <PriorityBadge p={task.priority} />
+                <StatusBadge s={task.status} />
+                {typeof task.estHours === "number" && (
+                  <span className="text-xs text-slate-600">
+                    {task.estHours} Est. hrs
+                  </span>
+                )}
+              </div>
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                {task.subject}
+              </p>
+            </SheetHeader>
+          </div>
 
-        {/* Scroll area */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-16 pr-6 pb-6 space-y-5">
-          {/* KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl border bg-white px-4 py-3">
-              <div className="text-[11px] text-slate-500">Assignees (worked)</div>
-              <div className="text-2xl font-semibold tabular-nums">{data.length}</div>
-            </div>
-            <div className="rounded-xl border bg-white px-4 py-3">
-              <div className="text-[11px] text-slate-500">Sessions</div>
-              <div className="text-2xl font-semibold tabular-nums">{totalSessions}</div>
-            </div>
-            <div className="rounded-xl border bg-white px-4 py-3">
-              <div className="text-[11px] text-slate-500">Total time (h)</div>
-              <div className="text-2xl font-semibold tabular-nums">
-                {humanHours(totalMsAll)}
+          <div className="flex-1 min-h-0 overflow-y-auto px-16 pr-6 pb-6 space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border bg:white px-4 py-3">
+                <div className="text-[11px] text-slate-500">
+                  Assignees (worked)
+                </div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {data.length}
+                </div>
+              </div>
+              <div className="rounded-xl border bg:white px-4 py-3">
+                <div className="text-[11px] text-slate-500">Sessions</div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {totalSessions}
+                </div>
+              </div>
+              <div className="rounded-xl border bg:white px-4 py-3">
+                <div className="text-[11px] text-slate-500">Total time (h)</div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {humanHours(totalMsAll)}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* People */}
-          <div>
-            <div className="mb-2 text-[11px] font-medium text-slate-500">People</div>
-            <div className="space-y-2">
-              {data.map((p) => {
-                const name = displayName(p.email);
-                const ini = initialsOf(name);
-                return (
-                  <div
-                    key={p.email}
-                    className="flex items-center justify-between rounded-lg border bg-white px-3.5 py-2.5"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-[10px]">{ini}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm font-medium text-slate-800 truncate">
-                        {name}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                      {p.sessions.length} sessions • {humanHours(p.totalMs)} h
-                    </div>
-                  </div>
-                );
-              })}
-              {data.length === 0 && (
-                <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-slate-500">
-                  لا يوجد نشاط مسجل بعد على هذه التسك.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Session log */}
-          {data.some((p) => p.sessions.length) && (
             <div>
               <div className="mb-2 text-[11px] font-medium text-slate-500">
-                Session log
+                People
               </div>
-
-              <div className="hidden md:grid grid-cols-12 bg-slate-50/60 px-3 py-2 rounded-t-lg border border-b-0">
-                <div className="col-span-4 text-[11px] font-medium text-slate-600">
-                  Member
-                </div>
-                <div className="col-span-2 text-[11px] font-medium text-slate-600">
-                  Start
-                </div>
-                <div className="col-span-2 text-[11px] font-medium text-slate-600">
-                  End
-                </div>
-                <div className="col-span-2 text-[11px] font-medium text-slate-600">
-                  Total (hrs)
-                </div>
-                <div className="col-span-2 text-[11px] font-medium text-slate-600">
-                  Note
-                </div>
-              </div>
-
-              <div className="border rounded-lg md:rounded-t-none overflow-hidden">
-                {data.flatMap((p) =>
-                  p.sessions.map((s, i) => {
-                    const noteText = (s.note || "").trim();
-                    const memberName = displayName(p.email);
-                    const canOpenNote = noteText.length > 0;
-                    const safeDurationMs = normalizeSessionDuration(
-                      s.durationMs,
-                      s.start,
-                      s.end
-                    );
-                    const durationHours = formatSessionHours(safeDurationMs);
-                    const durationDisplay = `${durationHours} h`;
-
-                    return (
-                      <div
-                        key={`${p.email}_${i}`}
-                        className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-0 px-3 py-2 border-t first:border-t-0"
-                      >
-                        {canOpenNote ? (
-                          <button
-                            type="button"
-                            onClick={() => handleSessionNoteOpen(memberName, s)}
-                            aria-label={`View full note from ${memberName}`}
-                            className="md:col-span-4 cursor-pointer text-left text-[13px] font-medium text-slate-800 truncate rounded-md transition hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
-                          >
-                            {memberName}
-                          </button>
-                        ) : (
-                          <div className="md:col-span-4 text-[13px] font-medium text-slate-800 truncate">
-                            {memberName}
-                          </div>
-                        )}
-                        <div className="md:col-span-2 text-[13px] tabular-nums">
-                          {formatSessionTime(s.start)}
-                        </div>
-                        <div className="md:col-span-2 text-[13px] tabular-nums">
-                          {formatSessionTime(s.end)}
-                        </div>
-                        <div className="md:col-span-2 text-[13px] tabular-nums" title={durationDisplay}>
-                          {durationDisplay}
-                        </div>
-                        <div
-                          className="md:col-span-2 text-[13px] text-slate-600 line-clamp-1 break-words"
-                          title={noteText || undefined}
-                        >
-                          {noteText || "-"}
-                        </div>
+              <div className="space-y-2">
+                {data.map((p) => {
+                  const name = displayName(p.email);
+                  const ini = initialsOf(name);
+                  return (
+                    <div
+                      key={p.email}
+                      className="flex items-center justify-between rounded-lg border bg-white px-3.5 py-2.5"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar className="h-7 w-7">
+                          <AvatarFallback className="text-[10px]">
+                            {ini}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm font-medium text-slate-800 truncate">
+                          {name}
+                        </span>
                       </div>
-                    );
-                  })
+                      <div className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                        {p.sessions.length} sessions • {humanHours(p.totalMs)} h
+                      </div>
+                    </div>
+                  );
+                })}
+                {data.length === 0 && (
+                  <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-slate-500">
+                    No activity has been recorded on this task yet.
+                  </div>
                 )}
               </div>
             </div>
-          )}
-        </div>
 
-        <SheetFooter className="px-16 pr-6 pb-6" />
-      </SheetContent>
-    </Sheet>
+            {data.some((p) => p.sessions.length) && (
+              <div>
+                <div className="mb-2 text-[11px] font-medium text-slate-500">
+                  Session log
+                </div>
 
-    <Dialog
-      open={!!sessionNoteViewer}
-      onOpenChange={(isOpen) => {
-        if (!isOpen) {
-          setSessionNoteViewer(null);
-        }
-      }}
-    >
-      {sessionNoteViewer ? (
-        <DialogContent className="sm:max-w-2xl w-[min(92vw,760px)]">
-          <DialogHeader className="space-y-1 text-left">
-            <DialogTitle>{sessionNoteViewer.member}</DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              {new Date(sessionNoteViewer.start).toLocaleDateString()} |{" "}
-              {formatSessionTime(sessionNoteViewer.start)} -{" "}
-              {formatSessionTime(sessionNoteViewer.end)} |{" "}
-              {formatSessionHours(
-                normalizeSessionDuration(
-                  sessionNoteViewer.durationMs,
-                  sessionNoteViewer.start,
-                  sessionNoteViewer.end
-                )
-              )}{" "}
-              h
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words break-all text-[15px] leading-6 text-slate-700 rounded-md border bg-slate-50 p-4">
-            {sessionNoteViewer.note}
+                <div className="hidden md:grid grid-cols-12 bg-slate-50/60 px-3 py-2 rounded-t-lg border border-b-0">
+                  <div className="col-span-4 text-[11px] font-medium text-slate-600">
+                    Member
+                  </div>
+                  <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                    Start
+                  </div>
+                  <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                    End
+                  </div>
+                  <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                    Total (hrs)
+                  </div>
+                  <div className="col-span-2 text-[11px] font-medium text-slate-600">
+                    Note
+                  </div>
+                </div>
+
+                <div className="border rounded-lg md:rounded-t-none overflow-hidden">
+                  {data.flatMap((p) =>
+                    p.sessions.map((s, i) => {
+                      const noteText = (s.note || "").trim();
+                      const memberName = displayName(p.email);
+                      const canOpenNote = noteText.length > 0;
+                      const safeDurationMs = normalizeSessionDuration(
+                        s.durationMs,
+                        s.start,
+                        s.end
+                      );
+                      const durationHours = formatSessionHours(safeDurationMs);
+                      const durationDisplay = `${durationHours} h`;
+
+                      return (
+                        <div
+                          key={`${p.email}_${i}`}
+                          className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-0 px-3 py-2 border-t first:border-t-0"
+                        >
+                          {canOpenNote ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSessionNoteOpen(memberName, s)
+                              }
+                              aria-label={`View full note from ${memberName}`}
+                              className="md:col-span-4 cursor-pointer text-left text-[13px] font-medium text-slate-800 truncate rounded-md transition hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
+                            >
+                              {memberName}
+                            </button>
+                          ) : (
+                            <div className="md:col-span-4 text-[13px] font-medium text-slate-800 truncate">
+                              {memberName}
+                            </div>
+                          )}
+                          <div className="md:col-span-2 text-[13px] tabular-nums">
+                            {formatSessionTime(s.start)}
+                          </div>
+                          <div className="md:col-span-2 text-[13px] tabular-nums">
+                            {formatSessionTime(s.end)}
+                          </div>
+                          <div
+                            className="md:col-span-2 text-[13px] tabular-nums"
+                            title={durationDisplay}
+                          >
+                            {durationDisplay}
+                          </div>
+                          <div
+                            className="md:col-span-2 text-[13px] text-slate-600 line-clamp-1 break-words"
+                            title={noteText || undefined}
+                          >
+                            {noteText || "-"}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-        </DialogContent>
-      ) : null}
-    </Dialog>
-  </>
+
+          <SheetFooter className="px-16 pr-6 pb-6" />
+        </SheetContent>
+      </Sheet>
+
+      <Dialog
+        open={!!sessionNoteViewer}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setSessionNoteViewer(null);
+          }
+        }}
+      >
+        {sessionNoteViewer ? (
+          <DialogContent className="sm:max-w-2xl w-[min(92vw,760px)]">
+            <DialogHeader className="space-y-1 text-left">
+              <DialogTitle>{sessionNoteViewer.member}</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                {new Date(sessionNoteViewer.start).toLocaleDateString()} |{" "}
+                {formatSessionTime(sessionNoteViewer.start)} -{" "}
+                {formatSessionTime(sessionNoteViewer.end)} |{" "}
+                {formatSessionHours(
+                  normalizeSessionDuration(
+                    sessionNoteViewer.durationMs,
+                    sessionNoteViewer.start,
+                    sessionNoteViewer.end
+                  )
+                )}{" "}
+                h
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words break-all text-[15px] leading-6 text-slate-700 rounded-md border bg-slate-50 p-4">
+              {sessionNoteViewer.note}
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+    </>
   );
 }
 
@@ -795,6 +891,7 @@ function TaskRow({
   email,
   members,
   projectTasks,
+  onStatusChange,
 }: {
   projectId: string;
   projectTitle?: string;
@@ -802,6 +899,7 @@ function TaskRow({
   email: string;
   members: Employee[];
   projectTasks: Task[];
+  onStatusChange: (status: TaskStatus) => void;
 }) {
   const [pendingStop, setPendingStop] = useState<null | (() => void)>(null);
   const [note, setNote] = useState("");
@@ -838,7 +936,6 @@ function TaskRow({
     doStop?.();
   }
 
-  /* ===== Project totals (Spent / Est.) for display ===== */
   const [ver, setVer] = useState(0);
   useEffect(() => {
     const onUpd = () => setVer((v) => v + 1);
@@ -847,7 +944,8 @@ function TaskRow({
   }, []);
 
   const projectEstHours = useMemo(
-    () => (projectTasks || []).reduce((sum, task) => sum + (task.estHours || 0), 0),
+    () =>
+      (projectTasks || []).reduce((sum, task) => sum + (task.estHours || 0), 0),
     [projectTasks]
   );
 
@@ -872,13 +970,12 @@ function TaskRow({
   return (
     <>
       <div
-        className="group flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm h-24 cursor-pointer transition hover:bg-slate-50"
+        className="group flex w-full flex-col sm:flex-row justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer transition hover:bg-slate-50"
         onClick={() => setOpen(true)}
         onKeyDown={(e) => e.key === "Enter" && setOpen(true)}
         role="button"
         tabIndex={0}
       >
-        {/* اليسار */}
         <div className="min-w-0">
           <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] sm:items-start">
             <div className="min-w-0">
@@ -915,7 +1012,7 @@ function TaskRow({
                   {taskSpentH} Spent hrs
                 </span>
                 {typeof t.estHours === "number" && (
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items:center gap-1">
                     <Clock className="h-4 w-4" />
                     {t.estHours} Est. hrs
                   </span>
@@ -927,9 +1024,8 @@ function TaskRow({
           </div>
         </div>
 
-        {/* اليمين */}
         <div
-          className="flex items-center gap-2 shrink-0"
+          className="mt-3 sm:mt-0 flex items-center gap-2 shrink-0 sm:self-center"
           onClick={(e) => e.stopPropagation()}
         >
           <Button
@@ -952,10 +1048,15 @@ function TaskRow({
             email={email}
             estHours={t.estHours}
             onRequestStop={handleRequestStop}
+            onStarted={() => onStatusChange("in_progress")}
             onStopped={({ startedAt, stoppedAt }) => {
+              const durationMs = stoppedAt - startedAt;
+
               let noteText: string | undefined = undefined;
               try {
-                const last = JSON.parse(localStorage.getItem(noteKey) || "null");
+                const last = JSON.parse(
+                  localStorage.getItem(noteKey) || "null"
+                );
                 if (last && Math.abs((last.at ?? 0) - stoppedAt) < 5000) {
                   noteText = last.note;
                 }
@@ -963,15 +1064,22 @@ function TaskRow({
               appendSession(projectId, t.id, email, {
                 start: startedAt,
                 end: stoppedAt,
-                durationMs: stoppedAt - startedAt,
+                durationMs,
                 note: noteText,
               });
+
+              if (typeof t.estHours === "number") {
+                const estMs = t.estHours * 3600000;
+                const newTotalMs = taskSpentMs + durationMs;
+                if (newTotalMs >= estMs && t.status !== "done") {
+                  onStatusChange("done");
+                }
+              }
             }}
           />
         </div>
       </div>
 
-      {/* Sheet */}
       <TaskDetailsSheet
         open={open}
         onOpenChange={setOpen}
@@ -1010,7 +1118,9 @@ function TaskRow({
               )}
             />
             {noteErr && (
-              <p className="text-xs text-red-500">Please add a note before saving.</p>
+              <p className="text-xs text-red-500">
+                Please add a note before saving.
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={cancelNote}>
@@ -1052,7 +1162,10 @@ function FiltersBar({
           placeholder="Filter subject…"
           value={tableFilters.searchSubject}
           onChange={(e) =>
-            setTableFilters({ ...tableFilters, searchSubject: e.target.value })
+            setTableFilters({
+              ...tableFilters,
+              searchSubject: e.target.value,
+            })
           }
           className="h-9"
         />
@@ -1107,7 +1220,7 @@ function FiltersBar({
           </Select>
         </div>
 
-        <div className="flex items-end gap-2">
+        <div className="flex items:end gap-2">
           <div className="flex-1 space-y-1">
             <div className="px-1 text-[11px] font-medium text-slate-500">
               Member
@@ -1153,12 +1266,10 @@ function FiltersBar({
 /* ===================== Page ===================== */
 export default function Admin() {
   const viewer = useMemo(() => getCurrentUserFromStorage() ?? DEFAULT_USER, []);
-  const [projects, setProjects] = useState<Project[]>(
-    JSON.parse(JSON.stringify(BASE_PROJECTS)) as Project[]
-  );
-  const [projectId, setProjectId] = useState<string | null>(
-    projects[0]?.id ?? null
-  );
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string | null>("all");
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
 
   const [tableFilters, setTableFilters] = useState<TableFilters>({
     searchTask: "",
@@ -1167,6 +1278,61 @@ export default function Admin() {
     status: "",
     assignee: "",
   });
+
+  const fetchProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const summaries = await listAllProjects({ limit: 50 });
+      if (!summaries.length) {
+        setProjects([]);
+        setProjectId(null);
+        return;
+      }
+
+      const detailResults = await Promise.allSettled(
+        summaries.map((summary) => getProjectDetail(summary.projectAID))
+      );
+      const mapped: Project[] = [];
+
+      detailResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          mapped.push(buildProjectFromDetail(result.value));
+        } else {
+          console.error(
+            "Failed to load project detail",
+            summaries[index],
+            result.reason
+          );
+        }
+      });
+
+      if (!mapped.length) {
+        throw new Error("Unable to load project details.");
+      }
+
+      setProjects(mapped);
+      setProjectId((prev) => {
+        if (prev === "all") return "all";
+        if (prev && mapped.some((p) => p.id === prev)) return prev;
+        return mapped.length ? "all" : null;
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "An error occurred while loading projects.";
+      setProjects([]);
+      setProjectId(null);
+      setProjectsError(message);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   function clearTableFilters() {
     setTableFilters({
@@ -1179,12 +1345,14 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    if (!projects.find((p) => p.id === projectId) && projectId !== "all")
-      setProjectId(projects[0]?.id ?? null);
+    if (!projects.find((p) => p.id === projectId) && projectId !== "all") {
+      setProjectId(projects.length ? "all" : null);
+    }
   }, [projects, projectId]);
 
   const current = useMemo(() => {
     if (projectId === "all") {
+      if (!projects.length) return null;
       const mergedMembersMap = new Map<string, Employee>();
       projects.forEach((p) =>
         p.members.forEach((m) => mergedMembersMap.set(m.email.toLowerCase(), m))
@@ -1195,7 +1363,7 @@ export default function Admin() {
         title: "All Projects",
         members: Array.from(mergedMembersMap.values()),
         tasks: mergedTasks,
-      } as Project;
+      };
     }
     return projects.find((p) => p.id === projectId) || null;
   }, [projects, projectId]);
@@ -1213,8 +1381,8 @@ export default function Admin() {
   }, [current]);
 
   function resetView() {
-    setProjects(JSON.parse(JSON.stringify(BASE_PROJECTS)) as Project[]);
     clearTableFilters();
+    fetchProjects();
   }
 
   const STATUS_ALL = { todo: true, in_progress: true, done: true };
@@ -1223,23 +1391,94 @@ export default function Admin() {
       current ? applyTaskFilters(current.tasks, STATUS_ALL, tableFilters) : [],
     [current, tableFilters]
   );
+  const showInitialLoading = projectsLoading && projects.length === 0;
+  const showEmptyState =
+    !projectsLoading && !projectsError && projects.length === 0;
+
+  // ← المهم: تحديث status في الـ state + في الباك
+  const updateTaskStatus = useCallback(
+    (projectIdStr: string, taskIdStr: string, status: TaskStatus) => {
+      let backendProjectAID: number | undefined;
+      let backendTaskAID: number | undefined;
+
+      setProjects((prev) => {
+        const next = prev.map((p) => {
+          if (p.id !== projectIdStr) return p;
+
+          if (typeof p.projectAID === "number") {
+            backendProjectAID = p.projectAID;
+          }
+
+          const tasks = p.tasks.map((t) => {
+            if (t.id !== taskIdStr) return t;
+            if (typeof t.taskAID === "number") {
+              backendTaskAID = t.taskAID;
+            }
+            return { ...t, status };
+          });
+
+          return { ...p, tasks };
+        });
+
+        // نبعَت للباك بعد ما نحدّث الـ state
+        if (backendProjectAID && backendTaskAID) {
+          (async () => {
+            try {
+              await updateTask(backendProjectAID!, backendTaskAID!, {
+                taskSts: mapTaskStatusToBackend(status),
+              });
+            } catch (err) {
+              console.error("Failed to update task status in backend", err);
+            }
+          })();
+        }
+
+        return next;
+      });
+    },
+    []
+  );
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-2 min-h-screen flex flex-col bg-white">
-      {/* Top bar */}
       <div className="mb-2 shrink-0">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
             <MiniUserChip name={viewer.name} email={viewer.email} />
           </div>
-          <Button variant="outline" className="gap-2" onClick={resetView}>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={resetView}
+            disabled={projectsLoading}
+          >
             <RefreshCw className="h-4 w-4" /> Reset view
           </Button>
         </div>
       </div>
 
-      {/* Project picker + stats */}
+      {projectsError && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          <span>{projectsError}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={fetchProjects}
+            disabled={projectsLoading}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {showInitialLoading && (
+        <div className="mb-2 flex items-center gap-2 text-sm text-slate-500">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          Loading projects...
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2 mb-2 shrink-0">
         <Card>
           <CardHeader className="pb-2">
@@ -1253,7 +1492,7 @@ export default function Admin() {
               <SelectTrigger className="h-10 w-full rounded-lg bg-slate-50">
                 <SelectValue placeholder="Choose a project" />
               </SelectTrigger>
-              <SelectContent className="w-[--radix-select-trigger-width]">
+              <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
@@ -1293,7 +1532,14 @@ export default function Admin() {
         </Card>
       </div>
 
-      {/* MAIN CARD */}
+      {showEmptyState && (
+        <Card className="mb-2">
+          <CardContent className="py-6 text-center text-sm text-slate-500">
+            No projects available yet.
+          </CardContent>
+        </Card>
+      )}
+
       {current && (
         <Card className="flex-1 flex flex-col min-h-[clamp(560px,80vh,1100px)]">
           <CardHeader className="pb-0 shrink-0">
@@ -1303,7 +1549,7 @@ export default function Admin() {
           <CardContent className="flex-1 min-h-0 p-0">
             <div className="h-full flex flex-col">
               <FiltersBar
-                project={current}
+                project={current as Project}
                 tableFilters={tableFilters}
                 setTableFilters={setTableFilters}
                 clearTableFilters={clearTableFilters}
@@ -1313,7 +1559,8 @@ export default function Admin() {
                   const parent =
                     projectId === "all"
                       ? projects.find((p) => p.tasks.some((x) => x.id === t.id))
-                      : current;
+                      : projects.find((p) => p.tasks.some((x) => x.id === t.id)) ||
+                        (current as Project);
 
                   return (
                     <TaskRow
@@ -1324,6 +1571,10 @@ export default function Admin() {
                       email={viewer.email.toLowerCase()}
                       members={parent?.members || []}
                       projectTasks={parent?.tasks || []}
+                      onStatusChange={(status) => {
+                        if (!parent) return;
+                        updateTaskStatus(parent.id, t.id, status);
+                      }}
                     />
                   );
                 })}
